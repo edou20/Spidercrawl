@@ -1,15 +1,24 @@
-# Spidercrawl
+<div align="center">
+  <img src="assets/hero.png" alt="Spidercrawl Hero" width="100%" />
 
-Spidercrawl is an AI-native web intelligence engine for turning messy web pages into clean, structured knowledge for LLM apps, agents, and RAG systems.
+  # 🕷️ Spidercrawl
+  **The AI-Native Web Intelligence Engine**
 
-It gives you a local API and dashboard for:
+  [![Spidercrawl CI](https://github.com/<YOUR_USERNAME>/spidercrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/<YOUR_USERNAME>/spidercrawl/actions/workflows/ci.yml)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](#)
+  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
 
-- Scraping one page into Markdown, HTML, JSON, tables, screenshots, and structured extraction output.
-- Crawling a site asynchronously with queue-backed job status and page storage.
-- Mapping link topology for a site.
-- Extracting JSON from content using a schema or natural-language prompt.
-- Exporting crawled content for RAG, JSONL, JSON-LD, CSV, Cytoscape, and GraphML.
-- Falling back from fast static parsing to Playwright rendering when a page or extraction needs it.
+  <p align="center">
+    <b>Transform messy web pages into clean, structured knowledge for LLM apps, agents, and RAG systems.</b>
+  </p>
+
+  [Explore Docs](#) • [View Demo](#) • [Report Bug](https://github.com/<YOUR_USERNAME>/spidercrawl/issues) • [Request Feature](https://github.com/<YOUR_USERNAME>/spidercrawl/issues)
+</div>
+
+<hr />
+
+Spidercrawl is a comprehensive, production-grade platform designed to orchestrate complex web data extraction at scale. It seamlessly blends high-speed static parsing with robust browser rendering and advanced AI reasoning to deliver LLM-ready data with zero friction.
 
 ## Ports
 
