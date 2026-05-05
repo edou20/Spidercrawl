@@ -19,7 +19,10 @@
     "python:check": "python3 -m py_compile sdk/python/spidercrawl/*.py workers/scraper_worker.py",
     "db:migrate": "psql \"$DATABASE_URL\" -f db/schema.sql",
     "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "crawler",
