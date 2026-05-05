@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spidercrawl"
+version = "0.1.0"
+description = "Official Python SDK for Spidercrawl — the intelligent self-hosted web data platform"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Spidercrawl Team", email = "hello@spidercrawl.com" },
+]
+keywords = [
+    "crawler",
+    "scraper",
+    "llm",
+    "ai",
+    "rag",
+    "spidercrawl",
+]
+dependencies = [
+    "httpx>=0.23.0",
+]
+
+[project.optional-dependencies]
+langchain = ["langchain-core>=0.1.0"]
+llama-index = ["llama-index-core>=0.10.0"]
+
+[project.urls]
+Homepage = "https://github.com/jssm/spidercrawl"
+Documentation = "https://github.com/jssm/spidercrawl/tree/main/sdk/python"
