@@ -3,8 +3,9 @@ import { createServer } from "./api/server.js";
 import { logger } from "./lib/logger.js";
 import { reconcileStaleQueuedJobs, startOrchestratorWorker, syncSchedulesWithQueue } from "./core/orchestrator.js";
 import { runMigrations } from "./lib/migrate.js";
+import { readIntegerEnv } from "./lib/env-utils.js";
 
-const PORT = Number(process.env.PORT) || 3200;
+const PORT = readIntegerEnv("PORT", 3200, { min: 1, max: 65535 });
 const HOST = process.env.HOST || "0.0.0.0";
 
 async function main() {

@@ -1,13 +1,14 @@
 import OpenAI from "openai";
 import { getDb, isDbEnabled } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
+import { readIntegerEnv } from "../lib/env-utils.js";
 
 const EMBED_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
-const EMBED_DIMS = Number(process.env.EMBEDDING_DIMENSIONS) || 1536;
+const EMBED_DIMS = readIntegerEnv("EMBEDDING_DIMENSIONS", 1536, { min: 1 });
 
 // Target chunk size in characters (~375 tokens at ~4 chars/token).
 // Smaller than 2048 means more chunks but better retrieval precision.
-const CHUNK_MAX_CHARS = Number(process.env.CHUNK_MAX_CHARS) || 1500;
+const CHUNK_MAX_CHARS = readIntegerEnv("CHUNK_MAX_CHARS", 1500, { min: 1 });
 
 export interface RagExportResult {
   jobId: string;

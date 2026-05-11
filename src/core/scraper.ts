@@ -5,12 +5,14 @@ import { extractTables } from "./table-extractor.js";
 import { extractImageDescriptions, enrichMarkdownWithVision } from "../ai/vision-processor.js";
 import { extractStructuredDetailed } from "../ai/structured-extractor.js";
 import { logger } from "../lib/logger.js";
+import { validateURL } from "../lib/url-utils.js";
 import type { ScrapeRequest, PageResult } from "../types/schemas.js";
 
 // ── Configuration ──────────────────────────────────────────────
 const WORKER_HOST = process.env.WORKER_HOST || "127.0.0.1";
 const WORKER_PORT = process.env.WORKER_PORT || "8400";
 const WORKER_URL = process.env.WORKER_URL || `http://${WORKER_HOST}:${WORKER_PORT}/scrape`;
+const DEFAULT_USER_AGENT = process.env.DEFAULT_USER_AGENT || "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 /**
  * Scrapes a single page.
@@ -27,55 +29,57 @@ export async function scrapePage(req: ScrapeRequest, isRetry = false): Promise<P
 
   const needsBrowser = req.useBrowser || req.formats.includes("screenshot") || isRetry;
 
-  try {
-    if (needsBrowser) {
-      // ── Phase 3: Playwright Worker ────────────────────────
-      logger.debug({ url: req.url }, "Fetching via Playwright worker");
-      const workerRes = await fetch(WORKER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: req.url,
-          waitFor: req.waitFor ?? 2000,
-          timeout: req.timeout,
-          proxyUrl: req.proxyUrl, // Phase 3: Advanced Stealth
-        }),
-      });
+   try {
+     // Validate URL to prevent SSRF
+     validateURL(req.url);
+     
+     if (needsBrowser) {
+       // ── Phase 3: Playwright Worker ────────────────────────
+       logger.debug({ url: req.url }, "Fetching via Playwright worker");
+       const workerRes = await fetch(WORKER_URL, {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           url: req.url,
+           waitFor: req.waitFor ?? 2000,
+           timeout: req.timeout,
+           proxyUrl: req.proxyUrl, // Phase 3: Advanced Stealth
+         }),
+       });
 
-      if (!workerRes.ok) {
-        throw new Error(`Worker failed: ${workerRes.statusText}`);
-      }
+       if (!workerRes.ok) {
+         throw new Error(`Worker failed: ${workerRes.statusText}`);
+       }
 
-      const data = await workerRes.json() as any;
-      if (data.error) throw new Error(`Worker error: ${data.error}`);
+       const data = await workerRes.json() as any;
+       if (data.error) throw new Error(`Worker error: ${data.error}`);
 
-      html = data.html;
-      if (req.formats.includes("screenshot")) {
-        screenshot = data.screenshot;
-      }
-    } else {
-      // ── Phase 1: Fast Cheerio Fetch ────────────────────────
-      logger.debug({ url: req.url }, "Fetching via fast HTTP");
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), req.timeout);
-      
-      try {
-        const response = await fetch(req.url, {
-          signal: controller.signal,
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            ...req.headers,
-          },
-        });
-        responseStatus = response.status;
-        html = await response.text();
-      } finally {
-        clearTimeout(timer);
-      }
-    }
+       html = data.html;
+       if (req.formats.includes("screenshot")) {
+         screenshot = data.screenshot;
+       }
+     } else {
+       // ── Phase 1: Fast Cheerio Fetch ────────────────────────
+       logger.debug({ url: req.url }, "Fetching via fast HTTP");
+       const controller = new AbortController();
+       const timer = setTimeout(() => controller.abort(), req.timeout);
+       
+       try {
+         const response = await fetch(req.url, {
+           signal: controller.signal,
+           headers: {
+             "User-Agent": DEFAULT_USER_AGENT,
+             Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+             "Accept-Language": "en-US,en;q=0.9",
+             ...req.headers,
+           },
+         });
+         responseStatus = response.status;
+         html = await response.text();
+       } finally {
+         clearTimeout(timer);
+       }
+     }
 
     const $ = cheerio.load(html);
 

@@ -14,6 +14,7 @@ import { buildPageJsonLd, detectEntityType } from "../export/jsonld.js";
 import { listSchedules, updateScheduleLastRun, getSchedule } from "../lib/schedule-store.js";
 import { nanoid } from "nanoid";
 import type { CrawlRequest, JobStatus, PageResult, Schedule } from "../types/schemas.js";
+import { readIntegerEnv } from "../lib/env-utils.js";
 
 // ── Queue Definitions ────────────────────────────────────────
 
@@ -24,7 +25,8 @@ const DEFAULT_STALE_QUEUED_JOB_MS = 10 * 60 * 1000;
 let crawlQueue: Queue | null = null;
 let crawlWorker: Worker | null = null;
 const CRAWL_EXECUTION_MODE = process.env.CRAWL_EXECUTION_MODE ?? "auto";
-const CRAWL_QUEUE_FALLBACK_MS = Number(process.env.CRAWL_QUEUE_FALLBACK_MS ?? 5000);
+const CRAWL_QUEUE_FALLBACK_MS = readIntegerEnv("CRAWL_QUEUE_FALLBACK_MS", 5000, { min: 0 });
+const CRAWL_PAGE_DELAY_MS = readIntegerEnv("CRAWL_PAGE_DELAY_MS", 500, { min: 0 });
 
 function getQueue(): Queue {
   if (!crawlQueue) {
@@ -310,7 +312,7 @@ export async function listRecentJobs(orgId?: string): Promise<JobStatus[]> {
 export async function reconcileStaleQueuedJobs(): Promise<number> {
   if (!isDbEnabled()) return 0;
 
-  const staleMs = Number(process.env.STALE_QUEUED_JOB_MS ?? DEFAULT_STALE_QUEUED_JOB_MS);
+  const staleMs = readIntegerEnv("STALE_QUEUED_JOB_MS", DEFAULT_STALE_QUEUED_JOB_MS, { min: 0 });
   if (staleMs <= 0) return 0;
 
   let rows: any[];
@@ -743,7 +745,7 @@ async function runCrawl(jobId: string, req: CrawlRequest): Promise<void> {
         for (const link of newLinks) queue.push({ url: link.url, title: link.title, depth: item.depth + 1, score: 0.5 });
       }
 
-      await delay(500);
+      await delay(CRAWL_PAGE_DELAY_MS);
     } catch (err: any) {
       failedPages++;
       logger.warn({ url: item.url, err: err.message }, "Crawl: page failed");
