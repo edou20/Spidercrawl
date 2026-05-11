@@ -55,7 +55,9 @@ Thumbs.db
 *.swp
 *.swo
 .claude/
+.superpowers/
 
 # Project Specific
 dump.rdb
 db/*.sqlite
+output/
