@@ -7,6 +7,8 @@ import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
+import { readIntegerEnv } from "../lib/env-utils.js";
 
 /**
  * Creates and configures the Fastify server instance.
@@ -14,13 +16,20 @@ import fs from "node:fs";
 export async function createServer() {
   const app = Fastify({
     logger: false, // We use our own pino instance
-    requestTimeout: 120_000,
+    requestTimeout: readIntegerEnv("REQUEST_TIMEOUT_MS", 120_000, { min: 1 }),
+  });
+
+  // ── Request tracking ──────────────────────────────────────
+  app.addHook("onRequest", async (request) => {
+    const reqId = request.headers["x-request-id"] as string || crypto.randomUUID();
+    request.id = reqId;
+    request.headers["x-request-id"] = reqId;
   });
 
   // ── Plugins ──────────────────────────────────────────────────
   await app.register(cors, { origin: true });
   await app.register(rateLimit, {
-    max: Number(process.env.API_RATE_LIMIT_MAX ?? 1000),
+    max: readIntegerEnv("API_RATE_LIMIT_MAX", 1000, { min: 1 }),
     timeWindow: process.env.API_RATE_LIMIT_WINDOW ?? "1 minute",
   });
 

@@ -106,6 +106,7 @@ export interface JobStatus {
   goal?: string;
   maxDepth: number;
   maxPages: number;
+  formats?: Array<"markdown" | "html" | "json" | "screenshot">;
   status: "queued" | "processing" | "completed" | "failed";
   progress: number; // 0-100
   totalPages: number;

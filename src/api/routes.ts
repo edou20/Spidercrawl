@@ -23,6 +23,7 @@ import { scheduleCrawlJob, unscheduleCrawlJob } from "../core/orchestrator.js";
 import type { WebhookEvent } from "../lib/webhooks.js";
 import { normalizeApiPayload } from "./serialize.js";
 import { resolveReplayLimit, toReplayPayload } from "./sse-utils.js";
+import { readIntegerEnv } from "../lib/env-utils.js";
 
 function classifyAIError(err: unknown): { status: number; error: string } | null {
   const message = err instanceof Error ? err.message : String(err ?? "");
@@ -78,7 +79,7 @@ export async function registerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: "Validation failed", details: parsed.error.flatten() });
     }
 
-    const MAX_CONCURRENT_CRAWLS = Number(process.env.MAX_CONCURRENT_CRAWLS ?? 10);
+    const MAX_CONCURRENT_CRAWLS = readIntegerEnv("MAX_CONCURRENT_CRAWLS", 10, { min: 1 });
     try {
       const activeJobs = await listRecentJobs(request.orgId);
       const running = activeJobs.filter((j) => j.status === "processing" || j.status === "queued").length;
@@ -117,6 +118,7 @@ export async function registerRoutes(app: FastifyInstance) {
       const enrichedStatus = requestConfig
         ? {
             ...status,
+            formats: status.formats ?? requestConfig.formats,
             extractionPrompt: status.extractionPrompt ?? requestConfig.extractionPrompt,
             extractionSchema: status.extractionSchema ?? requestConfig.extractionSchema,
             enableEntities: status.enableEntities ?? requestConfig.enableEntities,
@@ -879,16 +881,38 @@ export async function registerRoutes(app: FastifyInstance) {
         .map((r: any) => `• ${r.title || r.url}: ${(r.excerpt || "").slice(0, 200)}`)
         .join("\n");
 
-      const response = await aiComplete({
-        systemPrompt: "You are a research analyst. Summarize web crawl results concisely in bullet points.",
-        prompt: `Crawl of: ${job.root_url}\nGoal: ${job.goal || "Breadth-first exploration"}\nPages crawled: ${job.completed_pages}\n\nPage excerpts:\n${pageList}\n\nWrite exactly 3 bullet points (each starting with •) covering: what type of content was found, key topics or data discovered, and one notable pattern or standout finding.`,
-        temperature: 0.2,
-        maxTokens: 512,
-      });
+      try {
+        const response = await aiComplete({
+          systemPrompt: "You are a research analyst. Summarize web crawl results concisely in bullet points.",
+          prompt: `Crawl of: ${job.root_url}\nGoal: ${job.goal || "Breadth-first exploration"}\nPages crawled: ${job.completed_pages}\n\nPage excerpts:\n${pageList}\n\nWrite exactly 3 bullet points (each starting with •) covering: what type of content was found, key topics or data discovered, and one notable pattern or standout finding.`,
+          temperature: 0.2,
+          maxTokens: 512,
+        });
 
-      const summary = response.text.trim();
-      await setJobSummary(id, summary).catch(() => {});
-      return reply.status(200).send({ success: true, data: { summary, cached: false } });
+        const summary = response.text.trim();
+        await setJobSummary(id, summary).catch(() => {});
+        return reply.status(200).send({ success: true, data: { summary, cached: false } });
+      } catch (err) {
+        const aiError = classifyAIError(err);
+        if (!aiError) throw err;
+
+        const titles = pagesRes.rows
+          .map((r: any) => r.title || r.url)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ");
+        const pageCount = Number(job.completed_pages) || pagesRes.rows.length;
+        const summary = [
+          `• Crawled ${pageCount} page${pageCount === 1 ? "" : "s"} from ${job.root_url}.`,
+          `• Captured ${titles ? `pages including ${titles}` : "crawl content that is ready for search, preview, and export"}.`,
+          "• AI summary is unavailable until the provider key is fixed; the saved crawl data remains usable.",
+        ].join("\n");
+
+        return reply.status(200).send({
+          success: true,
+          data: { summary, cached: false, fallback: true, warning: aiError.error },
+        });
+      }
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }

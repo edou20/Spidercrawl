@@ -1,13 +1,12 @@
 import type { CrawlEventRow } from "../lib/job-store.js";
+import { parseIntegerSetting } from "../lib/env-utils.js";
 
 export function resolveReplayLimit(
   replayLimitRaw: string | undefined,
   envDefaultRaw: string | undefined,
 ): number {
-  const defaultReplay = Number(envDefaultRaw ?? 100);
-  const replay = replayLimitRaw ? Number(replayLimitRaw) : defaultReplay;
-  if (!Number.isFinite(replay)) return Math.max(0, Math.min(defaultReplay, 1000));
-  return Math.max(0, Math.min(Math.floor(replay), 1000));
+  const defaultReplay = parseIntegerSetting(envDefaultRaw, 100, { min: 0, max: 1000 });
+  return parseIntegerSetting(replayLimitRaw, defaultReplay, { min: 0, max: 1000 });
 }
 
 export function toReplayPayload(event: CrawlEventRow): string {
@@ -20,4 +19,3 @@ export function toReplayPayload(event: CrawlEventRow): string {
     ts: event.createdAt,
   });
 }
-
