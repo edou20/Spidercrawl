@@ -114,6 +114,7 @@ Recent reliability work added or verified:
 Primary check:
 
 ```bash
+npm run setup
 npm run verify
 ```
 

@@ -5,8 +5,12 @@ env/
 venv/
 ENV/
 bin/
-lib/
+/lib/
 include/
+
+# Keep source library code tracked
+!src/lib/
+!src/lib/**
 
 # Build and Output
 dist/

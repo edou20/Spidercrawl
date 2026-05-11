@@ -4,7 +4,7 @@
   # 🕷️ Spidercrawl
   **The AI-Native Web Intelligence Engine**
 
-  [![Spidercrawl CI](https://github.com/<YOUR_USERNAME>/spidercrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/<YOUR_USERNAME>/spidercrawl/actions/workflows/ci.yml)
+  [![Spidercrawl CI](https://github.com/edou20/Spidercrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/edou20/Spidercrawl/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](#)
   [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
@@ -13,12 +13,14 @@
     <b>Transform messy web pages into clean, structured knowledge for LLM apps, agents, and RAG systems.</b>
   </p>
 
-  [Explore Docs](#) • [View Demo](#) • [Report Bug](https://github.com/<YOUR_USERNAME>/spidercrawl/issues) • [Request Feature](https://github.com/<YOUR_USERNAME>/spidercrawl/issues)
+  [Explore Docs](docs/index.md) • [API Reference](docs/api/reference.md) • [Report Bug](https://github.com/edou20/Spidercrawl/issues) • [Request Feature](https://github.com/edou20/Spidercrawl/issues)
 </div>
 
 <hr />
 
-Spidercrawl is a comprehensive, production-grade platform designed to orchestrate complex web data extraction at scale. It seamlessly blends high-speed static parsing with robust browser rendering and advanced AI reasoning to deliver LLM-ready data with zero friction.
+Spidercrawl is a source-backed web intelligence platform for teams building LLM apps, agents, and RAG systems. It blends fast static scraping, optional browser rendering, structured extraction, entity resolution, crawl event replay, and knowledge search into one local-first control plane.
+
+The dashboard is built around Knowledge Ops: launch crawls, monitor reliability, inspect extracted pages, ask grounded questions over crawl output, and export clean artifacts without losing source provenance.
 
 ## Ports
 
@@ -34,6 +36,12 @@ Spidercrawl is a comprehensive, production-grade platform designed to orchestrat
 ## Quick Start: Local Development
 
 1. Install Node dependencies.
+
+```bash
+npm run setup
+```
+
+If you prefer manual install steps instead:
 
 ```bash
 npm install
@@ -93,9 +101,11 @@ Then open:
 
 ## Verify The Project
 
-Run the full local verification suite:
+Run the full local verification suite after installing both the root dependencies and dashboard dependencies:
 
 ```bash
+npm install
+npm run dashboard:install
 npm run verify
 ```
 
@@ -116,7 +126,7 @@ This runs the TypeScript build, backend lint, backend tests, dashboard build, Ty
 | `WORKER_URL` | No | derived | Full worker scrape URL override. |
 | `OPENAI_API_KEY` | Optional | empty | Used for OpenAI extraction/embeddings/search features. |
 | `GOOGLE_AI_API_KEY` | Optional | empty | Used for Gemini extraction/link scoring/vision features. |
-| `REQUIRE_API_KEY` | Optional | `false` | Set to `true` to require `Authorization: Bearer sk-sc-...`. |
+| `REQUIRE_API_KEY` | Optional | `false` | Set to `true` to require `Authorization: Bearer <api-key>` on protected routes. |
 | `MAX_CONCURRENT_CRAWLS` | Optional | `10` | Limits active crawl jobs. |
 | `CRAWL_EXECUTION_MODE` | Optional | `auto` | `auto` uses BullMQ with fallback, `queue` disables fallback, `inline` skips BullMQ for local debugging. |
 | `CRAWL_QUEUE_FALLBACK_MS` | Optional | `5000` | In `auto`, queued jobs run in-process if BullMQ does not pick them up in time. |
