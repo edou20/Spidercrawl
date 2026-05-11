@@ -368,10 +368,11 @@ export default function NewCrawlPage() {
           </div>
           <div className="card-body stack new-crawl-card-body">
             <div className="input-wrap">
-              <label className="input-label">URL *</label>
+              <label className="input-label" htmlFor="crawl-url">URL *</label>
               <div className="input-with-icon">
                 <Globe size={14} />
                 <input
+                  id="crawl-url"
                   required
                   type="url"
                   placeholder="https://example.com"
@@ -385,7 +386,7 @@ export default function NewCrawlPage() {
               </p>
             </div>
             <div className="input-wrap">
-              <label className="input-label">
+              <label className="input-label" htmlFor="crawl-goal">
                 Crawl Goal
                 {goal && (
                   <span style={{ marginLeft: 8, color: "var(--brand)", fontWeight: 500, fontSize: 11 }}>
@@ -396,6 +397,7 @@ export default function NewCrawlPage() {
               <div className="input-with-icon">
                 <Target size={14} />
                 <input
+                  id="crawl-goal"
                   placeholder="Describe what to find — leave blank for breadth-first…"
                   value={goal}
                   onChange={e => setGoal(e.target.value)}
@@ -435,8 +437,9 @@ export default function NewCrawlPage() {
             {/* Prompt mode */}
             {extractionMode === "prompt" && (
               <div className="input-wrap anim-up" style={{ marginTop: 4 }}>
-                <label className="input-label">Extraction Prompt</label>
+                <label className="input-label" htmlFor="crawl-extraction-prompt">Extraction Prompt</label>
                 <textarea
+                  id="crawl-extraction-prompt"
                   placeholder="Extract: product name, price, description, availability…"
                   value={extractionPrompt}
                   onChange={e => setExtractionPrompt(e.target.value)}

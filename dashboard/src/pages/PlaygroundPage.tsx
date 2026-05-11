@@ -1,12 +1,18 @@
 import { useState } from "react";
 import { Zap, Play, Copy, CheckCheck, FileText, Code2, Eye, Globe } from "lucide-react";
 import { getStoredApiKey } from "../api";
+import { joinApiUrl, resolveApiBaseUrl } from "../api-base";
 
 const EXAMPLES = [
   { label: "Apple iPhone", url: "https://www.apple.com/iphone/" },
   { label: "Web Crawler (Wiki)", url: "https://en.wikipedia.org/wiki/Web_crawler" },
   { label: "GitHub repo", url: "https://github.com/nicholasgasior/gsfmt" },
 ];
+
+const API_BASE = resolveApiBaseUrl(
+  typeof window !== "undefined" ? window.location.origin : "http://localhost:3200",
+  import.meta.env.VITE_BACKEND_URL
+);
 
 type OutputMode = "markdown" | "json" | "html";
 
@@ -34,7 +40,7 @@ export default function PlaygroundPage() {
     setBusy(true); setErr(null); setResult(null);
     try {
       const apiKey = getStoredApiKey();
-      const res = await fetch("/v1/scrape", {
+      const res = await fetch(joinApiUrl(API_BASE, "/v1/scrape"), {
         method: "POST",
         headers: {
           "content-type": "application/json",

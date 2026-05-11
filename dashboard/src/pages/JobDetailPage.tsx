@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Search, FileText, Tag, ExternalLink, Cpu, Database, Target,
   Download, RefreshCw, ArrowLeft, Globe, CheckCircle2, AlertTriangle,
@@ -20,6 +20,7 @@ import ErrorDisplay from "../components/ErrorDisplay";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { useCrawlStream } from "../hooks/useCrawlStream";
 import { timeAgo, hostname, pathname } from "../utils";
+import { buildRerunRequest } from "../job-rerun";
 
 type MainTab    = "pages" | "preview" | "graph" | "errors" | "events" | "ask" | "extracted";
 type GraphFilter = "all" | "pages" | string;
@@ -48,6 +49,7 @@ function parseFailedPageCount(message?: string | null) {
 
 export default function JobDetailPage() {
   const params = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const id = params.id ?? (
     typeof window !== "undefined"
@@ -86,6 +88,7 @@ export default function JobDetailPage() {
   const askPanelRef = useRef<HTMLDivElement>(null);
   const graphCardRef = useRef<HTMLDivElement>(null);
   const [graphWidth, setGraphWidth] = useState(800);
+  const autoAskHandledRef = useRef(false);
 
   const isActive = job?.status === "processing" || job?.status === "queued";
   const { events: streamEvents, connected } = useCrawlStream(id, isActive);
@@ -218,13 +221,7 @@ export default function JobDetailPage() {
     if (!id || !job) return;
     setBusy("rerunning");
     try {
-      const res = await startCrawl({
-        url: job.rootUrl,
-        goal: job.goal,
-        maxDepth: job.maxDepth ?? 3,
-        maxPages: job.maxPages ?? 50,
-        rerunJobId: id,
-      });
+      const res = await startCrawl(buildRerunRequest(id, job));
       navigate(`/jobs/${res.id}`);
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(null); }
@@ -303,6 +300,21 @@ export default function JobDetailPage() {
       askInputRef.current?.focus();
     }, 80);
   };
+
+  useEffect(() => {
+    const askState = location.state as
+      | { openTab?: "ask"; initialAskQuestion?: string; autoAsk?: boolean }
+      | null;
+    if (!askState?.openTab || askState.openTab !== "ask") return;
+
+    setTab("ask");
+    setAskQ(askState.initialAskQuestion ?? "");
+
+    if (askState.autoAsk && askState.initialAskQuestion?.trim() && !autoAskHandledRef.current) {
+      autoAskHandledRef.current = true;
+      void handleAsk(askState.initialAskQuestion);
+    }
+  }, [location.state, id]);
 
   const openPreview = (url: string) => {
     setPreviewPageUrl(url);
