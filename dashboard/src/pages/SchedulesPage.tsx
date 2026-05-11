@@ -50,13 +50,13 @@ export default function SchedulesPage() {
   }
 
   return (
-    <div className="stack-lg anim-up">
+    <div className="schedule-page stack-lg anim-up">
       <div className="flex justify-between items-end">
         <div>
           <Link to="/" className="back-link">
             <ArrowLeft size={13} /> Back to Dashboard
           </Link>
-          <div className="page-header" style={{ marginBottom: 0 }}>
+          <div className="page-header schedule-page-header">
             <h1><Calendar size={18} style={{ color: "var(--brand)" }} /> Schedules</h1>
             <p>Manage recurring crawl tasks and automated data extraction.</p>
           </div>
@@ -80,9 +80,9 @@ export default function SchedulesPage() {
         </div>
       ) : schedules.length === 0 ? (
         <div className="card">
-          <div className="card-body stack items-center py-12 text-center" style={{ gap: 16 }}>
-            <div className="pi" style={{ padding: 20, background: "rgba(255,255,255,0.04)", borderRadius: "50%" }}>
-              <Clock size={32} style={{ opacity: 0.3 }} />
+          <div className="card-body stack items-center py-12 text-center schedule-empty">
+            <div className="schedule-empty-icon">
+              <Clock size={32} />
             </div>
             <div>
               <h3 className="text-primary font-semibold">No active schedules</h3>
@@ -98,7 +98,7 @@ export default function SchedulesPage() {
           {schedules.map(s => (
             <div key={s.id} className={`card schedule-card ${!s.active ? "inactive" : ""}`}>
               <div className="card-body flex justify-between items-start">
-                <div className="stack" style={{ gap: 12, flex: 1 }}>
+                <div className="schedule-card-main stack">
                   <div className="flex items-center gap-3">
                     <div className={`status-dot ${s.active ? "online" : "offline"}`} />
                     <h3 className="font-semibold text-primary text-lg">{s.name}</h3>
@@ -115,7 +115,7 @@ export default function SchedulesPage() {
                       <div className="flex items-center gap-1.5 text-secondary text-sm">
                         <Target size={13} style={{ opacity: 0.5 }} />
                         <span className="text-tertiary">Goal:</span>
-                        <span className="truncate" style={{ maxWidth: 200 }}>{s.goal}</span>
+                        <span className="truncate schedule-goal">{s.goal}</span>
                       </div>
                     )}
                   </div>
@@ -158,28 +158,6 @@ export default function SchedulesPage() {
         </div>
       )}
 
-      <style>{`
-        .schedule-card {
-          transition: all 0.2s ease;
-          border-left: 3px solid var(--brand);
-        }
-        .schedule-card.inactive {
-          border-left-color: var(--text-tertiary);
-          opacity: 0.7;
-        }
-        .border-color-subtle {
-          border-color: rgba(255,255,255,0.05);
-        }
-        .badge-outline {
-          background: rgba(34, 211, 238, 0.1);
-          color: var(--brand-light);
-          border: 1px solid rgba(34, 211, 238, 0.22);
-          font-family: var(--font-mono);
-          font-size: 11px;
-          padding: 2px 8px;
-          border-radius: 4px;
-        }
-      `}</style>
     </div>
   );
 }

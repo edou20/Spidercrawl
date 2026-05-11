@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { ExternalLink, Search, Sparkles } from "lucide-react";
 import { SearchHit, searchAllJobs } from "../api";
 
@@ -17,18 +17,22 @@ function timeAgo(iso?: string) {
 }
 
 export default function SearchPage() {
-  const [query, setQuery] = useState("");
+  const [searchParams] = useSearchParams();
+  const initialQuery = searchParams.get("q") ?? "";
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchHit[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [lastQuery, setLastQuery] = useState("");
+  const lastAutoQuery = useRef("");
   const selected = results.find((result) => result.url === selectedUrl) ?? results[0] ?? null;
 
-  const runSearch = async () => {
-    const nextQuery = query.trim();
+  const runSearch = async (override?: string) => {
+    const nextQuery = (override ?? query).trim();
     if (!nextQuery) return;
+    setQuery(nextQuery);
     setBusy(true);
     setError(null);
     setHasSearched(true);
@@ -45,6 +49,13 @@ export default function SearchPage() {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    const q = (searchParams.get("q") ?? "").trim();
+    if (!q || q === lastAutoQuery.current) return;
+    lastAutoQuery.current = q;
+    void runSearch(q);
+  }, [searchParams]);
 
   return (
     <div className="search-page stack-lg anim-up">
@@ -69,7 +80,7 @@ export default function SearchPage() {
               placeholder="Search domains, snippets, docs, products..."
             />
           </label>
-          <button className="btn btn-primary search-submit-btn" onClick={runSearch} disabled={busy || !query.trim()}>
+          <button className="btn btn-primary search-submit-btn" onClick={() => runSearch()} disabled={busy || !query.trim()}>
             {busy ? <><span className="spinner" /> Searching...</> : <><Search size={13} /> Search</>}
           </button>
         </div>
