@@ -1,16 +1,21 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Globe, Zap, CheckCircle, TrendingUp, Plus, ArrowRight, Clock,
+  Globe, CheckCircle, TrendingUp, Plus, ArrowRight, Clock,
   RefreshCw, Trash2, Download, Search, RotateCcw, AlertTriangle, Activity,
+  BrainCircuit, Network, ShieldCheck, MessageSquare, SendHorizontal, FileText,
 } from "lucide-react";
 import {
   JobRow, Stats, listJobs, getStats, deleteJob, retryJob,
   exportJobAsJson, exportJobAsCsv, exportJobAsJsonl, exportJobAsFineTuneJsonl,
+  getJobLinks, getJobPages, getJobEntities,
 } from "../api";
 import ErrorDisplay from "../components/ErrorDisplay";
 import LoadingSpinner from "../components/LoadingSpinner";
+import ForceGraph from "../components/ForceGraph";
+import type { GNode, GEdge } from "../components/ForceGraph";
 import { timeAgo, hostname, shortPath } from "../utils";
+import { buildDashboardAskNavigation } from "../dashboard-ask";
 
 type DashboardMode = "overview" | "crawls";
 
@@ -20,6 +25,336 @@ function StatusBadge({ status }: { status: string }) {
       <span className="pulse-dot" />
       {status}
     </span>
+  );
+}
+
+function MiniGraph({ jobId }: { jobId: string | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(480);
+  const [nodes, setNodes] = useState<GNode[]>([]);
+  const [edges, setEdges] = useState<GEdge[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Measure container width
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) setWidth(Math.floor(w));
+    });
+    ro.observe(containerRef.current);
+    setWidth(Math.floor(containerRef.current.getBoundingClientRect().width) || 480);
+    return () => ro.disconnect();
+  }, []);
+
+  // Fetch real graph data from the latest completed job
+  useEffect(() => {
+    if (!jobId) return;
+    setLoading(true);
+    Promise.allSettled([
+      getJobPages(jobId),
+      getJobLinks(jobId),
+      getJobEntities(jobId),
+    ]).then(([pagesRes, linksRes, entitiesRes]) => {
+      const pages   = pagesRes.status   === "fulfilled" ? pagesRes.value   : [];
+      const links   = linksRes.status   === "fulfilled" ? linksRes.value   : [];
+      const entities = entitiesRes.status === "fulfilled" ? entitiesRes.value : [];
+
+      // Cap for mini display
+      const MAX_PAGES    = 80;
+      const MAX_ENTITIES = 40;
+      const usedPages    = pages.slice(0, MAX_PAGES);
+      const usedEntities = entities.slice(0, MAX_ENTITIES);
+
+      const pageSet = new Set(usedPages.map(p => p.url));
+
+      const gNodes: GNode[] = [
+        ...usedPages.map(p => ({
+          id: p.url,
+          label: hostname(p.url) + (p.url.replace(/https?:\/\/[^/]+/, "") || "/"),
+          color: "#38bdf8",
+          size: 6,
+          type: "page" as const,
+        })),
+        ...usedEntities.map(e => ({
+          id: `entity:${e.name}`,
+          label: e.name,
+          color: "#a78bfa",
+          size: 7 + Math.min((e.sourceUrls?.length ?? 1) * 1.5, 8),
+          type: "entity" as const,
+        })),
+      ];
+
+      const visibleIds = new Set(gNodes.map(n => n.id));
+      const gEdges: GEdge[] = [
+        ...links
+          .filter(l => pageSet.has(l.from) && pageSet.has(l.to))
+          .slice(0, 300)
+          .map(l => ({ source: l.from, target: l.to })),
+        ...usedEntities.flatMap(e =>
+          (e.sourceUrls ?? [])
+            .filter(u => pageSet.has(u))
+            .map(u => ({ source: u, target: `entity:${e.name}` }))
+        ).filter(e => visibleIds.has(e.source) && visibleIds.has(e.target)),
+      ];
+
+      setNodes(gNodes);
+      setEdges(gEdges);
+    }).finally(() => setLoading(false));
+  }, [jobId]);
+
+  if (!jobId) {
+    return (
+      <div className="knowledge-graph-preview graph-empty-state" style={{ height: 280, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+        <BrainCircuit size={28} style={{ color: "var(--brand)", opacity: 0.4 }} />
+        <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Run a crawl to see the knowledge graph</span>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "var(--text-tertiary)", fontSize: 12 }}>
+        <div className="spinner" />
+        Building graph…
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} style={{ width: "100%", height: 280 }}>
+      <ForceGraph nodes={nodes} edges={edges} width={width} height={280} />
+    </div>
+  );
+}
+
+function KnowledgeOpsOverview({
+  stats,
+  jobs,
+  liveJobs,
+  failedJobs,
+  completedJobs,
+  recentJobs,
+  avgSatisfaction,
+  isLoading,
+  navigate,
+}: {
+  stats: Stats | null;
+  jobs: JobRow[];
+  liveJobs: JobRow[];
+  failedJobs: JobRow[];
+  completedJobs: JobRow[];
+  recentJobs: JobRow[];
+  avgSatisfaction: number | null;
+  isLoading: boolean;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const latestCompleted = completedJobs[0] ?? null;
+  const reliability = jobs.length > 0 ? Math.round((completedJobs.length / jobs.length) * 100) : null;
+  const pagesIndexed = stats?.totalPages ?? jobs.reduce((sum, job) => sum + job.completedPages, 0);
+  const askTarget = latestCompleted ?? recentJobs[0] ?? null;
+  const [askDraft, setAskDraft] = useState("");
+
+  const submitDashboardAsk = () => {
+    const destination = buildDashboardAskNavigation(
+      askTarget ? { id: askTarget.id, rootUrl: askTarget.rootUrl, completedPages: askTarget.completedPages } : null,
+      askDraft || (askTarget ? `What did ${hostname(askTarget.rootUrl)} reveal?` : "")
+    );
+    navigate(destination.pathname, destination.state ? { state: destination.state } : undefined);
+  };
+
+  return (
+    <section className="knowledge-ops" aria-label="Knowledge operations overview">
+      <div className="knowledge-ops__header">
+        <div>
+          <div className="page-eyebrow">Knowledge Ops</div>
+          <h1>Turn crawled web into source-backed answers.</h1>
+          <p>
+            Monitor reliability, inspect crawl memory, and move from raw pages to searchable knowledge without losing provenance.
+          </p>
+        </div>
+        <div className="knowledge-ops__actions">
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate("/search")}>
+            <Search size={12} /> Search Knowledge
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => navigate("/new")}>
+            <Plus size={12} /> New Crawl
+          </button>
+        </div>
+      </div>
+
+      <div className="reliability-strip">
+        <div className="reliability-metric reliability-metric--live">
+          <span className="metric-label"><Activity size={12} /> Active Jobs</span>
+          <strong>{stats?.activeJobs ?? liveJobs.length}</strong>
+          <span>{liveJobs.length > 0 ? "Running now" : "Queue is idle"}</span>
+        </div>
+        <div className="reliability-metric">
+          <span className="metric-label"><CheckCircle size={12} /> Completed</span>
+          <strong>{stats?.completedJobs ?? completedJobs.length}</strong>
+          <span>{failedJobs.length} failed</span>
+        </div>
+        <div className="reliability-metric">
+          <span className="metric-label"><TrendingUp size={12} /> Pages Indexed</span>
+          <strong>{pagesIndexed.toLocaleString()}</strong>
+          <span>{avgSatisfaction != null ? `${Math.round(avgSatisfaction * 100)}% avg relevance` : "Across crawl memory"}</span>
+        </div>
+        <div className="reliability-metric">
+          <span className="metric-label"><BrainCircuit size={12} /> AI Extraction</span>
+          <strong className={stats?.aiAvailable ? "metric-ok" : "metric-muted"}>{stats?.aiAvailable ? "Healthy" : "Offline"}</strong>
+          <span>{stats?.aiAvailable ? "Vision · extract · score" : "Add provider key"}</span>
+        </div>
+        <div className="reliability-metric">
+          <span className="metric-label"><ShieldCheck size={12} /> Reliability</span>
+          <strong className={reliability != null && reliability < 80 ? "metric-warn" : "metric-ok"}>
+            {reliability != null ? `${reliability}%` : "Ready"}
+          </strong>
+          <span>{jobs.length > 0 ? "crawl completion rate" : "no runs yet"}</span>
+        </div>
+      </div>
+
+      <div className="knowledge-ops-grid">
+        <div className="knowledge-panel ask-panel">
+          <div className="knowledge-panel__header">
+            <span><MessageSquare size={14} /> Ask</span>
+            {askTarget && <button className="link-btn" onClick={() => navigate(`/jobs/${askTarget.id}`)}>Open crawl</button>}
+          </div>
+          <div className="ask-input-preview">
+            <input
+              type="text"
+              value={askDraft}
+              onChange={(event) => setAskDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitDashboardAsk();
+                }
+              }}
+              placeholder={askTarget ? `What did ${hostname(askTarget.rootUrl)} reveal?` : "What should this crawl teach the team?"}
+            />
+            <button type="button" className="btn btn-ghost btn-sm btn-icon" onClick={submitDashboardAsk} title="Ask this crawl">
+              <SendHorizontal size={14} />
+            </button>
+          </div>
+          <div className="answer-preview">
+            <div className="answer-preview__meta">
+              <span>Answer</span>
+              <span>{askTarget ? "source-backed" : "ready after first crawl"}</span>
+            </div>
+            <p>
+              {askTarget
+                ? `Spidercrawl has indexed ${askTarget.completedPages.toLocaleString()} page${askTarget.completedPages === 1 ? "" : "s"} from ${hostname(askTarget.rootUrl)}. Open the crawl to ask grounded questions, inspect sources, and export the result.`
+                : "Start a crawl to unlock answers, citations, entity maps, and source previews from the pages Spidercrawl collects."}
+            </p>
+            <div className="source-chip-row">
+              {(recentJobs.length > 0 ? recentJobs : jobs).slice(0, 4).map((job, index) => (
+                <button key={job.id} className="source-chip" onClick={() => navigate(`/jobs/${job.id}`)}>
+                  <FileText size={12} />
+                  <span>{hostname(job.rootUrl)}</span>
+                  <em>{index + 1}</em>
+                </button>
+              ))}
+              {recentJobs.length === 0 && jobs.length === 0 && (
+                <>
+                  <span className="source-chip source-chip--placeholder"><FileText size={12} /> markdown</span>
+                  <span className="source-chip source-chip--placeholder"><Network size={12} /> graph</span>
+                  <span className="source-chip source-chip--placeholder"><BrainCircuit size={12} /> answer</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="knowledge-panel graph-panel">
+          <div className="knowledge-panel__header">
+            <span><Network size={14} /> Knowledge Graph</span>
+            <div className="graph-legend">
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <svg width="9" height="9"><circle cx="4.5" cy="4.5" r="3.5" fill="#38bdf8" opacity="0.85" /></svg> Pages
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <svg width="10" height="9" viewBox="0 0 10 9"><polygon points="5,0 9.3,2.5 9.3,7 5,9 0.7,7 0.7,2.5" fill="#a78bfa" opacity="0.85" /></svg> Entities
+              </span>
+            </div>
+          </div>
+          <MiniGraph jobId={latestCompleted?.id ?? (recentJobs[0]?.id ?? null)} />
+        </div>
+      </div>
+
+      <div className="card overview-recent-card knowledge-recent-card">
+        <div className="card-header">
+          <span className="card-title">
+            <Clock size={13} />
+            Recent Crawls
+          </span>
+          <Link to="/crawls">
+            <button className="btn btn-secondary btn-sm">
+              View all crawls <ArrowRight size={12} />
+            </button>
+          </Link>
+        </div>
+        <div className="table-wrap">
+          <table className="knowledge-table">
+            <thead>
+              <tr>
+                <th>Target</th>
+                <th>Status</th>
+                <th>Pages</th>
+                <th>Progress</th>
+                <th>Updated</th>
+                <th>Reliability</th>
+                <th style={{ width: 40 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr><td colSpan={7}><div className="flex items-center justify-center py-8" style={{ gap: 10 }}><LoadingSpinner loading /></div></td></tr>
+              ) : recentJobs.length === 0 ? (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="empty-state">
+                      <Globe style={{ width: 36, height: 36 }} />
+                      <h3>No crawls yet</h3>
+                      <p>Launch the first crawl to build searchable, source-backed crawl memory.</p>
+                      <button className="empty-state-action" onClick={() => navigate("/new")}>Start Crawl</button>
+                    </div>
+                  </td>
+                </tr>
+              ) : recentJobs.map((job) => (
+                <tr key={job.id} className="clickable-row" onClick={() => navigate(`/jobs/${job.id}`)}>
+                  <td>
+                    <div className="knowledge-target">
+                      <Globe size={14} />
+                      <div>
+                        <strong>{hostname(job.rootUrl)}</strong>
+                        <span>{shortPath(job.rootUrl)}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td><StatusBadge status={job.status} /></td>
+                  <td>{job.completedPages.toLocaleString()}</td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <div className="progress" style={{ width: 96 }}>
+                        <div className={`progress-fill ${job.status === "processing" ? "progress-fill--animated" : ""}`} style={{ width: `${job.progress}%` }} />
+                      </div>
+                      <span className="text-xs text-tertiary font-mono">{job.progress}%</span>
+                    </div>
+                  </td>
+                  <td>{timeAgo(job.updatedAt)}</td>
+                  <td>
+                    <span className={job.status === "failed" ? "text-red" : "text-green"}>
+                      {job.status === "failed" ? "attention" : "stable"}
+                    </span>
+                  </td>
+                  <td><ArrowRight size={13} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -150,7 +485,6 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
   }
 
   /* ── Render ─────────────────────────────────────────────────── */
-  const hasJobs = jobs.length > 0;
   const isCrawlsMode = mode === "crawls";
   const statusOptions: Array<{ value: typeof statusFilter; label: string }> = [
     { value: "all", label: "All" },
@@ -185,96 +519,21 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
         </div>
       )}
 
-      {!isCrawlsMode && stats && hasJobs && (
-        <div className="overview-hero">
-          <div>
-            <div className="page-eyebrow">Mission Control</div>
-            <h1>Web intelligence cockpit.</h1>
-            <p>
-              Track crawl health, indexed pages, failed jobs, and the fastest path back into extraction work.
-            </p>
-          </div>
-          <div className="overview-hero-actions">
-            <button className="btn btn-primary btn-sm" onClick={() => navigate("/new")}>
-              <Plus size={12} /> New Crawl
-            </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => navigate("/search")}>
-              <Search size={12} /> Search Knowledge
-            </button>
-          </div>
-        </div>
+      {!isCrawlsMode && (
+        <KnowledgeOpsOverview
+          stats={stats}
+          jobs={jobs}
+          liveJobs={liveJobs}
+          failedJobs={failedJobs}
+          completedJobs={completedJobs}
+          recentJobs={recentJobs}
+          avgSatisfaction={avgSatisfaction}
+          isLoading={isLoading}
+          navigate={navigate}
+        />
       )}
 
       {/* ── Hero (first visit only) ──────────────────────────── */}
-      {!isCrawlsMode && !isLoading && !hasJobs && (
-        <div className="hero">
-          <h1>
-            The web is <span className="g">structured data</span><br />
-            waiting to be unlocked.
-          </h1>
-          <p>
-            AI-native crawling with multimodal extraction, goal-oriented link
-            discovery, and semantic search — purpose-built for LLM pipelines.
-          </p>
-          <div className="hero-cta">
-            <button className="btn btn-primary btn-lg" onClick={() => navigate("/new")}>
-              <Plus size={14} /> Start First Crawl
-            </button>
-            <button className="btn btn-secondary btn-lg" onClick={() => navigate("/playground")}>
-              <Zap size={14} /> Try Playground
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Stats ────────────────────────────────────────────── */}
-      {stats && !isCrawlsMode && (
-        <div className="stats-grid">
-          <div className="stat-card anim-up" style={{ ["--stat-gradient" as any]: "linear-gradient(90deg,#22c55e,#4ade80)" }}>
-            <div className="stat-card-accent" />
-            <div className="stat-label"><Globe size={11} /> Total Crawls</div>
-            <div className="stat-value">{stats.totalJobs}</div>
-            <div className="stat-sub">{stats.completedJobs} completed · {stats.failedJobs} failed</div>
-          </div>
-          <div className={`stat-card anim-up ${stats.activeJobs > 0 ? "stat-card--live" : ""}`} style={{ ["--stat-gradient" as any]: "linear-gradient(90deg,#f59e0b,#fbbf24)" }}>
-            <div className="stat-card-accent" />
-            <div className="stat-label">
-              <Activity size={11} className={stats.activeJobs > 0 ? "anim-pulse" : ""} />
-              Active Jobs
-            </div>
-            <div className="stat-value" style={{ color: stats.activeJobs > 0 ? "#fbbf24" : undefined }}>
-              {stats.activeJobs}
-            </div>
-            <div className="stat-sub">{stats.activeJobs > 0 ? "Running now" : "Idle"}</div>
-          </div>
-          <div className="stat-card anim-up" style={{ ["--stat-gradient" as any]: "linear-gradient(90deg,#3b82f6,#60a5fa)" }}>
-            <div className="stat-card-accent" />
-            <div className="stat-label"><TrendingUp size={11} /> Pages Indexed</div>
-            <div className="stat-value">{stats.totalPages.toLocaleString()}</div>
-            <div className="stat-sub">
-              {avgSatisfaction != null
-                ? `${(avgSatisfaction * 100).toFixed(0)}% avg relevance`
-                : "Across all crawls"}
-            </div>
-          </div>
-          <div className="stat-card anim-up" style={{
-            ["--stat-gradient" as any]: `linear-gradient(90deg,${stats.aiAvailable ? "#8b5cf6,#a78bfa" : "#334155,#475569"})`,
-          }}>
-            <div className="stat-card-accent" />
-            <div className="stat-label"><CheckCircle size={11} /> AI Status</div>
-            <div className="stat-value" style={{
-              fontSize: 20, paddingTop: 6,
-              color: stats.aiAvailable ? "#a78bfa" : "var(--text-disabled)",
-            }}>
-              {stats.aiAvailable ? "Online" : "Offline"}
-            </div>
-            <div className="stat-sub">
-              {stats.aiAvailable ? "Vision · Extract · Score" : "Set API key to enable"}
-            </div>
-          </div>
-        </div>
-      )}
-
       {isCrawlsMode && (
         <div className="crawl-focus-grid">
           <button className={`crawl-focus-card ${statusFilter === "all" ? "active" : ""}`} onClick={() => setStatusFilter("all")}>
@@ -359,37 +618,6 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
         </div>
       )}
 
-      {!isCrawlsMode && completedJobs.length > 0 && (
-        <div className="crawl-focus-grid">
-          <div className="crawl-focus-card crawl-focus-card--info">
-            <div className="crawl-focus-label">Completion rate</div>
-            <div className="crawl-focus-value">
-              {jobs.length > 0 ? `${Math.round((completedJobs.length / jobs.length) * 100)}%` : "0%"}
-            </div>
-            <div className="crawl-focus-meta">Share of crawls that reached completion</div>
-          </div>
-          <div className="crawl-focus-card crawl-focus-card--info">
-            <div className="crawl-focus-label">Average relevance</div>
-            <div className="crawl-focus-value">
-              {avgSatisfaction != null ? `${Math.round(avgSatisfaction * 100)}%` : "N/A"}
-            </div>
-            <div className="crawl-focus-meta">Based on scored jobs with satisfaction data</div>
-          </div>
-          <div className="crawl-focus-card crawl-focus-card--info">
-            <div className="crawl-focus-label">Fast path</div>
-            <div className="crawl-focus-meta">Jump straight back into the crawl studio or semantic playground.</div>
-            <div className="page-intro-actions" style={{ marginTop: 12 }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/new")}>
-                <Plus size={12} /> New Crawl
-              </button>
-              <button className="btn btn-secondary btn-sm" onClick={() => navigate("/search")}>
-                <Search size={12} /> Search
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Failed jobs alert banner ─────────────────────────── */}
       {failedJobs.length > 0 && !isLoading && statusFilter === "all" && (
         <div className="failed-banner">
@@ -411,42 +639,6 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
           >
             Select all failed
           </button>
-        </div>
-      )}
-
-      {!isCrawlsMode && hasJobs && (
-        <div className="card overview-recent-card">
-          <div className="card-header">
-            <span className="card-title">
-              <Clock size={13} />
-              Recent Crawl Activity
-            </span>
-            <Link to="/crawls">
-              <button className="btn btn-secondary btn-sm">
-                Open Operations <ArrowRight size={12} />
-              </button>
-            </Link>
-          </div>
-          <div className="overview-recent-list">
-            {recentJobs.map((job) => (
-              <button
-                key={job.id}
-                className="overview-recent-row"
-                onClick={() => navigate(`/jobs/${job.id}`)}
-              >
-                <div className="overview-recent-main">
-                  <strong>{hostname(job.rootUrl)}</strong>
-                  <span>{job.goal ? `"${job.goal}"` : "breadth-first crawl"}</span>
-                </div>
-                <div className="overview-recent-meta">
-                  <StatusBadge status={job.status} />
-                  <span>{job.completedPages} / {job.maxPages ?? "∞"} pages</span>
-                  <span>{timeAgo(job.updatedAt)}</span>
-                  <ArrowRight size={13} />
-                </div>
-              </button>
-            ))}
-          </div>
         </div>
       )}
 

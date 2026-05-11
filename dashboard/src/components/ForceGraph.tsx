@@ -501,47 +501,30 @@ export default function ForceGraph({ nodes, edges, width, height, onNodeClick, s
   const entityCount = nodes.filter(n => n.type === "entity").length;
 
   return (
-    <div style={{ position: "relative", width, height, overflow: "hidden", borderRadius: "0 0 var(--r-lg) var(--r-lg)" }}>
-      <canvas ref={canvasRef} style={{ width, height, display: "block" }} />
+    <div className="graph-stage" style={{ width, height }}>
+      <canvas ref={canvasRef} className="graph-canvas" style={{ width, height }} />
 
       {/* Tooltip */}
       {tooltip && (
-        <div style={{
-          position: "absolute",
-          left: Math.min(tooltip.x + 14, width - 220),
-          top: Math.max(tooltip.y - 48, 8),
-          background: "rgba(10,14,22,0.96)",
-          border: "1px solid rgba(148,163,184,0.18)",
-          borderRadius: 9,
-          padding: "9px 13px",
-          pointerEvents: "none",
-          backdropFilter: "blur(12px)",
-          maxWidth: 220,
-          zIndex: 20,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-        }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: "#f1f5f9", marginBottom: 3, lineHeight: 1.35 }}>
+        <div
+          className="graph-tooltip"
+          style={{
+            left: Math.min(tooltip.x + 14, width - 220),
+            top: Math.max(tooltip.y - 48, 8),
+          }}
+        >
+          <div className="graph-tooltip-title">
             {tooltip.node.label}
           </div>
-          <div style={{
-            fontSize: 10,
-            color: "#475569",
-            fontFamily: "var(--font-mono)",
-            wordBreak: "break-all",
-            lineHeight: 1.4,
-          }}>
+          <div className="graph-tooltip-id">
             {tooltip.node.type === "entity" ? "Entity node" : tooltip.node.id.slice(0, 60) + (tooltip.node.id.length > 60 ? "…" : "")}
           </div>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6,
-            fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em",
-          }}>
-            <span style={{
-              display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+          <div className="graph-tooltip-type">
+            <span className="graph-tooltip-dot" style={{
               background: tooltip.node.color,
               boxShadow: `0 0 6px ${tooltip.node.color}`,
             }} />
-            <span style={{ color: "#64748b" }}>
+            <span>
               {tooltip.node.type === "entity" ? "Entity" : "Page"}
             </span>
           </div>
@@ -549,10 +532,7 @@ export default function ForceGraph({ nodes, edges, width, height, onNodeClick, s
       )}
 
       {/* Zoom controls */}
-      <div style={{
-        position: "absolute", bottom: 16, right: 16,
-        display: "flex", flexDirection: "column", gap: 4, zIndex: 10,
-      }}>
+      <div className="graph-zoom-controls">
         {[
           { icon: <ZoomIn size={13} />, action: zoomIn, title: "Zoom in" },
           { icon: <ZoomOut size={13} />, action: zoomOut, title: "Zoom out" },
@@ -562,17 +542,7 @@ export default function ForceGraph({ nodes, edges, width, height, onNodeClick, s
             key={title}
             title={title}
             onClick={action}
-            style={{
-              width: 30, height: 30, borderRadius: 7,
-              background: "rgba(10,14,22,0.85)",
-              border: "1px solid rgba(148,163,184,0.15)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", color: "#64748b",
-              backdropFilter: "blur(8px)",
-              transition: "all 0.15s",
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#cbd5e1"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(148,163,184,0.35)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#64748b"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(148,163,184,0.15)"; }}
+            className="graph-zoom-btn"
           >
             {icon}
           </button>
@@ -580,45 +550,27 @@ export default function ForceGraph({ nodes, edges, width, height, onNodeClick, s
       </div>
 
       {/* Legend */}
-      <div style={{
-        position: "absolute", bottom: 16, left: 16,
-        display: "flex", gap: 12, alignItems: "center",
-        background: "rgba(10,14,22,0.75)",
-        border: "1px solid rgba(148,163,184,0.12)",
-        borderRadius: 8, padding: "6px 12px",
-        backdropFilter: "blur(8px)",
-        fontSize: 11, color: "#475569",
-        zIndex: 10,
-      }}>
+      <div className="graph-legend">
         {pageCount > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span className="graph-legend-item">
             <svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="#38bdf8" opacity="0.85" /></svg>
             <span>{pageCount} page{pageCount !== 1 ? "s" : ""}</span>
           </span>
         )}
         {entityCount > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span className="graph-legend-item">
             <svg width="12" height="11" viewBox="0 0 12 11">
               <polygon points="6,0.5 11,3 11,8 6,10.5 1,8 1,3" fill="#a78bfa" opacity="0.85" />
             </svg>
             <span>{entityCount} entit{entityCount !== 1 ? "ies" : "y"}</span>
           </span>
         )}
-        <span style={{ color: "#334155" }}>·</span>
+        <span className="graph-legend-sep">·</span>
         <span>{edges.length} relationship{edges.length !== 1 ? "s" : ""}</span>
       </div>
 
       {/* Interaction hint */}
-      <div style={{
-        position: "absolute", top: 14, right: 14,
-        display: "inline-flex", alignItems: "center", gap: 7,
-        background: "rgba(10,14,22,0.72)",
-        border: "1px solid rgba(148,163,184,0.12)",
-        borderRadius: 8, padding: "6px 10px",
-        backdropFilter: "blur(8px)",
-        fontSize: 10.5, color: "#64748b",
-        zIndex: 10,
-      }}>
+      <div className="graph-hint">
         <MousePointer2 size={11} />
         <span>Drag to pan · buttons to zoom · reset if lost</span>
       </div>
