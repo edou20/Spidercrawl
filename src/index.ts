@@ -1,10 +1,12 @@
 import "dotenv/config";
+import crypto from "node:crypto";
 import { createServer } from "./api/server.js";
 import { logger } from "./lib/logger.js";
 import { reconcileStaleQueuedJobs, startOrchestratorWorker, syncSchedulesWithQueue } from "./core/orchestrator.js";
 import { runMigrations } from "./lib/migrate.js";
+import { readIntegerEnv } from "./lib/env-utils.js";
 
-const PORT = Number(process.env.PORT) || 3200;
+const PORT = readIntegerEnv("PORT", 3200, { min: 1, max: 65535 });
 const HOST = process.env.HOST || "0.0.0.0";
 
 async function main() {
@@ -19,6 +21,17 @@ async function main() {
   try {
     await server.listen({ port: PORT, host: HOST });
     logger.info(`🕷️  Spidercrawl API running at http://${HOST}:${PORT}`);
+
+    if (process.env.DATABASE_URL && process.env.DISABLE_DATABASE_KEEPALIVE !== "true") {
+      const ms = readIntegerEnv("DATABASE_KEEPALIVE_MS", 86_400_000, { min: 60_000 });
+      setInterval(() => {
+        void import("./lib/db.js").then(({ getDb, isDbEnabled }) => {
+          if (!isDbEnabled()) return;
+          getDb().query("SELECT 1").catch(() => {});
+        });
+      }, ms).unref();
+      logger.info({ ms }, "Database keepalive interval started");
+    }
 
     // Start background worker for crawl jobs
     startOrchestratorWorker();

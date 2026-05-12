@@ -7,6 +7,7 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
+import { createOpenAIClient, getOpenAIChatModel } from "../lib/openai-client.js";
 import { logger } from "../lib/logger.js";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -119,7 +120,8 @@ async function geminiVision(req: AIVisionRequest): Promise<AIResponse> {
 // ─── OpenAI Implementation ──────────────────────────────────────
 
 async function openaiComplete(req: AICompletionRequest): Promise<AIResponse> {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  const client = createOpenAIClient();
+  const model = getOpenAIChatModel();
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
   if (req.systemPrompt) {
@@ -128,7 +130,7 @@ async function openaiComplete(req: AICompletionRequest): Promise<AIResponse> {
   messages.push({ role: "user", content: req.prompt });
 
   const result = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model,
     messages,
     temperature: req.temperature ?? 0.2,
     max_tokens: req.maxTokens ?? 4096,
@@ -138,13 +140,14 @@ async function openaiComplete(req: AICompletionRequest): Promise<AIResponse> {
   return {
     text: result.choices[0]?.message?.content || "",
     provider: "openai",
-    model: "gpt-4o-mini",
+    model,
     tokensUsed: result.usage?.total_tokens,
   };
 }
 
 async function openaiVision(req: AIVisionRequest): Promise<AIResponse> {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  const client = createOpenAIClient();
+  const model = getOpenAIChatModel();
 
   const content: OpenAI.Chat.ChatCompletionContentPart[] = [
     { type: "text", text: req.prompt },
@@ -161,7 +164,7 @@ async function openaiVision(req: AIVisionRequest): Promise<AIResponse> {
   }
 
   const result = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model,
     messages: [{ role: "user", content }],
     temperature: req.temperature ?? 0.2,
     max_tokens: req.maxTokens ?? 4096,
@@ -170,7 +173,7 @@ async function openaiVision(req: AIVisionRequest): Promise<AIResponse> {
   return {
     text: result.choices[0]?.message?.content || "",
     provider: "openai",
-    model: "gpt-4o-mini",
+    model,
     tokensUsed: result.usage?.total_tokens,
   };
 }

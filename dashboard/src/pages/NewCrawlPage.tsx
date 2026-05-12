@@ -368,10 +368,11 @@ export default function NewCrawlPage() {
           </div>
           <div className="card-body stack new-crawl-card-body">
             <div className="input-wrap">
-              <label className="input-label">URL *</label>
+              <label className="input-label" htmlFor="crawl-url">URL *</label>
               <div className="input-with-icon">
                 <Globe size={14} />
                 <input
+                  id="crawl-url"
                   required
                   type="url"
                   placeholder="https://example.com"
@@ -385,17 +386,16 @@ export default function NewCrawlPage() {
               </p>
             </div>
             <div className="input-wrap">
-              <label className="input-label">
-                Crawl Goal
-                {goal && (
-                  <span style={{ marginLeft: 8, color: "var(--brand)", fontWeight: 500, fontSize: 11 }}>
-                    AI link-scoring active
-                  </span>
-                )}
-              </label>
+              <label className="input-label" htmlFor="crawl-goal">Crawl Goal</label>
+              {goal && (
+                <div className="goal-active-label">
+                  AI link-scoring active
+                </div>
+              )}
               <div className="input-with-icon">
                 <Target size={14} />
                 <input
+                  id="crawl-goal"
                   placeholder="Describe what to find — leave blank for breadth-first…"
                   value={goal}
                   onChange={e => setGoal(e.target.value)}
@@ -435,8 +435,9 @@ export default function NewCrawlPage() {
             {/* Prompt mode */}
             {extractionMode === "prompt" && (
               <div className="input-wrap anim-up" style={{ marginTop: 4 }}>
-                <label className="input-label">Extraction Prompt</label>
+                <label className="input-label" htmlFor="crawl-extraction-prompt">Extraction Prompt</label>
                 <textarea
+                  id="crawl-extraction-prompt"
                   placeholder="Extract: product name, price, description, availability…"
                   value={extractionPrompt}
                   onChange={e => setExtractionPrompt(e.target.value)}
@@ -522,7 +523,7 @@ export default function NewCrawlPage() {
                     >
                       {testBusy
                         ? <><LoadingSpinner loading size="sm" /> Scraping…</>
-                        : "Run Test →"}
+                        : <><FlaskConical size={11} /> Run Test</>}
                     </button>
                   </div>
                 </div>
@@ -587,16 +588,18 @@ export default function NewCrawlPage() {
             </div>
             <div className="new-crawl-field-grid">
               <div className="input-wrap">
-                <label className="input-label">Max Depth</label>
+                <label className="input-label" htmlFor="crawl-max-depth">Max Depth</label>
                 <input
+                  id="crawl-max-depth"
                   type="number" min={1} max={50}
                   value={maxDepth}
                   onChange={e => setDepth(Number(e.target.value))}
                 />
               </div>
               <div className="input-wrap">
-                <label className="input-label">Max Pages</label>
+                <label className="input-label" htmlFor="crawl-max-pages">Max Pages</label>
                 <input
+                  id="crawl-max-pages"
                   type="number" min={1} max={2000}
                   value={maxPages}
                   onChange={e => setPages(Number(e.target.value))}
@@ -664,20 +667,20 @@ export default function NewCrawlPage() {
                   checked={enableEntities}
                   onChange={e => setEnableEntities(e.target.checked)}
                 />
-                <span className="text-sm font-semibold text-white">
+                <span className="text-sm font-semibold text-primary">
                   Enable Entity Resolution
                 </span>
-                <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                <span className="llm-intensive-badge">
                   LLM INTENSIVE
                 </span>
               </label>
-              <p className="text-[10px] text-slate-500 mt-1 ml-5">
+              <p className="entity-resolution-note">
                 Automatically identifies and merges people, companies, and products found in text.
               </p>
             </div>
 
             {/* Schedule toggle */}
-            <div style={{ marginTop: 8, borderTop: "1px solid var(--border-subtle)", paddingTop: 16 }}>
+            <div className="schedule-config-toggle">
               <label className="flex items-center gap-2" style={{ cursor: "pointer" }}>
                 <input
                   type="checkbox"
@@ -689,18 +692,19 @@ export default function NewCrawlPage() {
                 </span>
               </label>
               {isScheduled && (
-                <div className="stack anim-up" style={{ marginTop: 12, padding: 12, background: "rgba(255,255,255,0.02)", borderRadius: 8, border: "1px dashed rgba(99,102,241,0.25)" }}>
+                <div className="schedule-config-panel stack anim-up">
                   <div className="input-wrap">
-                    <label className="input-label">Schedule Name</label>
+                    <label className="input-label" htmlFor="crawl-schedule-name">Schedule Name</label>
                     <input
+                      id="crawl-schedule-name"
                       placeholder="e.g. Daily Docs Sync"
                       value={scheduleName}
                       onChange={e => setScheduleName(e.target.value)}
                     />
                   </div>
                   <div className="input-wrap">
-                    <label className="input-label">Frequency</label>
-                    <select value={scheduleCron} onChange={e => setScheduleCron(e.target.value)}>
+                    <label className="input-label" htmlFor="crawl-schedule-frequency">Frequency</label>
+                    <select id="crawl-schedule-frequency" value={scheduleCron} onChange={e => setScheduleCron(e.target.value)}>
                       <option value="0 * * * *">Hourly</option>
                       <option value="0 0 * * *">Daily at Midnight</option>
                       <option value="0 0 * * 1">Weekly (Monday)</option>

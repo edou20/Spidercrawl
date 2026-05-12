@@ -13,7 +13,7 @@ import { buildKeywordHitFromRow, mergeAndRerankHybridHits, rerankHybridHit } fro
 import { mapSite } from "../core/mapper.js";
 import { extractStructured, extractStructuredDetailed } from "../ai/structured-extractor.js";
 import { resolveEntities } from "../ai/entity-resolver.js";
-import { isAIAvailable, aiComplete } from "../ai/provider.js";
+import { isAIAvailable, aiComplete, detectProvider } from "../ai/provider.js";
 import { getRedis } from "../lib/redis.js";
 import { getDb, isDbEnabled } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
@@ -23,13 +23,39 @@ import { scheduleCrawlJob, unscheduleCrawlJob } from "../core/orchestrator.js";
 import type { WebhookEvent } from "../lib/webhooks.js";
 import { normalizeApiPayload } from "./serialize.js";
 import { resolveReplayLimit, toReplayPayload } from "./sse-utils.js";
+import { readIntegerEnv } from "../lib/env-utils.js";
+import { getOpenAIChatModel, getOpenAICompatibleGateway } from "../lib/openai-client.js";
+import { registerAuthRoutes } from "./auth-routes.js";
+import { registerBillingRoutes } from "./billing-routes.js";
+import { assertCrawlAllowed } from "../lib/org-billing.js";
+import { resolveOrgIdFromBearer } from "../lib/api-key-resolve.js";
+
+function buildAIRoutingStatus() {
+  const picked = detectProvider();
+  const gateway = picked === "openai" ? getOpenAICompatibleGateway() : null;
+  const activeProvider =
+    picked === "gemini"
+      ? "gemini"
+      : picked === "openai"
+        ? gateway === "openrouter"
+          ? "openrouter"
+          : gateway === "custom"
+            ? "openai-compatible"
+            : "openai"
+        : null;
+  const openAi =
+    picked === "openai"
+      ? { gateway: gateway ?? "openai", chatModel: getOpenAIChatModel() }
+      : undefined;
+  return { activeProvider, openAi };
+}
 
 function classifyAIError(err: unknown): { status: number; error: string } | null {
   const message = err instanceof Error ? err.message : String(err ?? "");
   if (/api key not valid|api_key_invalid|invalid api key|unauthorized|permission_denied|401|403/i.test(message)) {
     return {
       status: 503,
-      error: "AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY.",
+      error: "AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY. For OpenRouter set OPENAI_BASE_URL=https://openrouter.ai/api/v1 and OPENAI_CHAT_MODEL; unset GOOGLE_AI_API_KEY to use the OpenAI-compatible path.",
     };
   }
   if (/quota|rate limit|resource_exhausted|too many requests|429/i.test(message)) {
@@ -78,7 +104,7 @@ export async function registerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: "Validation failed", details: parsed.error.flatten() });
     }
 
-    const MAX_CONCURRENT_CRAWLS = Number(process.env.MAX_CONCURRENT_CRAWLS ?? 10);
+    const MAX_CONCURRENT_CRAWLS = readIntegerEnv("MAX_CONCURRENT_CRAWLS", 10, { min: 1 });
     try {
       const activeJobs = await listRecentJobs(request.orgId);
       const running = activeJobs.filter((j) => j.status === "processing" || j.status === "queued").length;
@@ -90,9 +116,16 @@ export async function registerRoutes(app: FastifyInstance) {
       }
     } catch {}
 
+    const orgIdForCrawl = request.orgId ?? (await resolveOrgIdFromBearer(request.headers.authorization));
+    try {
+      await assertCrawlAllowed(orgIdForCrawl);
+    } catch (quotaErr: any) {
+      return reply.status(402).send({ success: false, error: quotaErr.message || "Quota exceeded" });
+    }
+
     try {
       const jobId = nanoid();
-      await startCrawl(jobId, parsed.data, request.orgId);
+      await startCrawl(jobId, parsed.data, orgIdForCrawl);
       return reply.status(201).send({
         success: true,
         data: {
@@ -117,6 +150,7 @@ export async function registerRoutes(app: FastifyInstance) {
       const enrichedStatus = requestConfig
         ? {
             ...status,
+            formats: status.formats ?? requestConfig.formats,
             extractionPrompt: status.extractionPrompt ?? requestConfig.extractionPrompt,
             extractionSchema: status.extractionSchema ?? requestConfig.extractionSchema,
             enableEntities: status.enableEntities ?? requestConfig.enableEntities,
@@ -879,16 +913,38 @@ export async function registerRoutes(app: FastifyInstance) {
         .map((r: any) => `• ${r.title || r.url}: ${(r.excerpt || "").slice(0, 200)}`)
         .join("\n");
 
-      const response = await aiComplete({
-        systemPrompt: "You are a research analyst. Summarize web crawl results concisely in bullet points.",
-        prompt: `Crawl of: ${job.root_url}\nGoal: ${job.goal || "Breadth-first exploration"}\nPages crawled: ${job.completed_pages}\n\nPage excerpts:\n${pageList}\n\nWrite exactly 3 bullet points (each starting with •) covering: what type of content was found, key topics or data discovered, and one notable pattern or standout finding.`,
-        temperature: 0.2,
-        maxTokens: 512,
-      });
+      try {
+        const response = await aiComplete({
+          systemPrompt: "You are a research analyst. Summarize web crawl results concisely in bullet points.",
+          prompt: `Crawl of: ${job.root_url}\nGoal: ${job.goal || "Breadth-first exploration"}\nPages crawled: ${job.completed_pages}\n\nPage excerpts:\n${pageList}\n\nWrite exactly 3 bullet points (each starting with •) covering: what type of content was found, key topics or data discovered, and one notable pattern or standout finding.`,
+          temperature: 0.2,
+          maxTokens: 512,
+        });
 
-      const summary = response.text.trim();
-      await setJobSummary(id, summary).catch(() => {});
-      return reply.status(200).send({ success: true, data: { summary, cached: false } });
+        const summary = response.text.trim();
+        await setJobSummary(id, summary).catch(() => {});
+        return reply.status(200).send({ success: true, data: { summary, cached: false } });
+      } catch (err) {
+        const aiError = classifyAIError(err);
+        if (!aiError) throw err;
+
+        const titles = pagesRes.rows
+          .map((r: any) => r.title || r.url)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ");
+        const pageCount = Number(job.completed_pages) || pagesRes.rows.length;
+        const summary = [
+          `• Crawled ${pageCount} page${pageCount === 1 ? "" : "s"} from ${job.root_url}.`,
+          `• Captured ${titles ? `pages including ${titles}` : "crawl content that is ready for search, preview, and export"}.`,
+          "• AI summary is unavailable until the provider key is fixed; the saved crawl data remains usable.",
+        ].join("\n");
+
+        return reply.status(200).send({
+          success: true,
+          data: { summary, cached: false, fallback: true, warning: aiError.error },
+        });
+      }
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
@@ -908,16 +964,26 @@ export async function registerRoutes(app: FastifyInstance) {
       const { answer, sources } = await synthesizeAnswer(id, question.trim(), Number(limit));
       return reply.status(200).send({ success: true, data: { answer, sources } });
     } catch (err: any) {
+      const aiError = classifyAIError(err);
+      if (aiError) return reply.status(aiError.status).send({ success: false, error: aiError.error });
       return reply.status(500).send({ success: false, error: err.message });
     }
   });
 
   // ─── GET /v1/ai/status ────────────────────────────────────
-  app.get("/v1/ai/status", async () => ({
-    success: true,
-    aiAvailable: isAIAvailable(),
-    providers: { gemini: !!process.env.GOOGLE_AI_API_KEY, openai: !!process.env.OPENAI_API_KEY },
-  }));
+  app.get("/v1/ai/status", async () => {
+    const routing = buildAIRoutingStatus();
+    return {
+      success: true,
+      aiAvailable: isAIAvailable(),
+      activeProvider: routing.activeProvider,
+      providers: {
+        gemini: !!process.env.GOOGLE_AI_API_KEY?.trim(),
+        openai: !!process.env.OPENAI_API_KEY?.trim(),
+      },
+      ...(routing.openAi ? { openAi: routing.openAi } : {}),
+    };
+  });
 
   // ─── GET /v1/system/health ────────────────────────────────
   app.get("/v1/system/health", async (_request, reply) => {
@@ -966,6 +1032,8 @@ export async function registerRoutes(app: FastifyInstance) {
       } catch {}
     }
 
+    const routing = buildAIRoutingStatus();
+
     return reply.status(200).send({
       success: true,
       data: {
@@ -974,10 +1042,15 @@ export async function registerRoutes(app: FastifyInstance) {
         redis: redisOk,
         worker: workerOk,
         ai: isAIAvailable(),
+        activeProvider: routing.activeProvider,
+        ...(routing.openAi ? { openAi: routing.openAi } : {}),
         lastWorkerError,
       },
     });
   });
+
+  await registerAuthRoutes(app);
+  await registerBillingRoutes(app);
 }
 
 // ── Shared synthesis helper (used by route + MCP tool) ───────────────────────
@@ -987,41 +1060,70 @@ export async function synthesizeAnswer(
   question: string,
   limit = 5
 ): Promise<{ answer: string; sources: string[] }> {
+  const safeLimit = Math.min(20, Math.max(1, Math.floor(Number(limit)) || 5));
   let chunks: Array<{ content: string; url: string; title?: string }> = [];
 
   // 1. Try vector search (requires pgvector + OpenAI key)
   if (isDbEnabled() && process.env.OPENAI_API_KEY) {
     try {
-      const hits = await searchEmbeddings(jobId, question, limit);
+      const hits = await searchEmbeddings(jobId, question, safeLimit);
       if (hits.length > 0) {
         chunks = hits.map((h) => ({ content: h.content, url: h.url, title: h.title }));
       }
     } catch {}
   }
 
-  // 2. Fallback: keyword search over stored markdown
+  // 2. Fallback: keyword search over stored markdown (any page in the job, not only the first N by time)
   if (chunks.length === 0 && isDbEnabled()) {
     const db = getDb();
-    const terms = tokenizeSearchQuery(question);
-    const res = await db.query(
-      `SELECT url, title, substring(markdown from 1 for 2000) AS excerpt
-       FROM pages WHERE job_id = $1 AND markdown IS NOT NULL
-       ORDER BY crawled_at ASC LIMIT 50`,
-      [jobId]
-    );
-    const scored = res.rows
-      .map((r: any) => ({
-        ...r,
-        score: terms.filter((t: string) => (r.excerpt ?? "").toLowerCase().includes(t)).length,
-      }))
-      .filter((r: any) => r.score > 0)
-      .sort((a: any, b: any) => b.score - a.score)
-      .slice(0, limit);
-    chunks = scored.map((r: any) => ({ content: r.excerpt, url: r.url, title: r.title }));
+    const terms = tokenizeSearchQuery(question).slice(0, 20);
+    const fetchCap = Math.min(120, Math.max(24, safeLimit * 12));
+
+    if (terms.length > 0) {
+      const termConds = terms.map((_, i) => `position($${i + 2} in lower(markdown)) > 0`).join(" OR ");
+      const limitParam = terms.length + 2;
+      const res = await db.query(
+        `SELECT url, title, substring(markdown from 1 for 2000) AS excerpt
+         FROM pages
+         WHERE job_id = $1 AND markdown IS NOT NULL AND (${termConds})
+         ORDER BY crawled_at DESC
+         LIMIT $${limitParam}`,
+        [jobId, ...terms, fetchCap]
+      );
+      const scored = res.rows
+        .map((r: any) => ({
+          ...r,
+          score: terms.filter((t: string) => (r.excerpt ?? "").toLowerCase().includes(t)).length,
+        }))
+        .filter((r: any) => r.score > 0)
+        .sort((a: any, b: any) => b.score - a.score)
+        .slice(0, safeLimit);
+      chunks = scored.map((r: any) => ({ content: r.excerpt, url: r.url, title: r.title }));
+    }
+
+    // Short questions (no tokens >2 chars) or no keyword hit: use the most recently crawled pages as context
+    if (chunks.length === 0) {
+      const recentLimit = Math.min(80, Math.max(12, safeLimit * 4));
+      const res = await db.query(
+        `SELECT url, title, substring(markdown from 1 for 2000) AS excerpt
+         FROM pages
+         WHERE job_id = $1 AND markdown IS NOT NULL
+         ORDER BY crawled_at DESC
+         LIMIT $2`,
+        [jobId, recentLimit]
+      );
+      chunks = res.rows.map((r: any) => ({
+        content: r.excerpt,
+        url: r.url,
+        title: r.title,
+      }));
+    }
   }
 
   if (chunks.length === 0) {
-    throw new Error("No relevant content found. Ensure the crawl is complete and has page content.");
+    throw new Error(
+      "No relevant content found. Ensure DATABASE_URL is set, the crawl finished, and pages have markdown. For semantic search over large jobs, set OPENAI_API_KEY and build embeddings (RAG export)."
+    );
   }
 
   const context = chunks

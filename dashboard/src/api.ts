@@ -1,3 +1,5 @@
+import { joinApiUrl, resolveApiBaseUrl } from "./api-base";
+
 export interface JobRow {
   id: string;
   rootUrl: string;
@@ -5,6 +7,7 @@ export interface JobRow {
   goal?: string;
   maxDepth?: number;
   maxPages?: number;
+  formats?: string[];
   totalPages: number;
   completedPages: number;
   progress: number;
@@ -56,6 +59,9 @@ export interface SystemHealth {
   redis: boolean;
   worker: boolean;
   ai: boolean;
+  /** When set, chat uses this backend (e.g. openrouter vs api.openai.com). */
+  activeProvider?: string | null;
+  openAi?: { gateway: string; chatModel: string };
   lastWorkerError?: string;
 }
 
@@ -143,6 +149,11 @@ export function setStoredApiKey(key: string | null) {
   else localStorage.removeItem("spidercrawl_api_key");
 }
 
+const API_BASE = resolveApiBaseUrl(
+  typeof window !== "undefined" ? window.location.origin : "http://localhost:3200",
+  import.meta.env.VITE_BACKEND_URL
+);
+
 function withAuthHeaders(options: RequestInit = {}): HeadersInit {
   const apiKey = getStoredApiKey();
   return {
@@ -151,14 +162,29 @@ function withAuthHeaders(options: RequestInit = {}): HeadersInit {
   };
 }
 
-async function fetchApi<T = any>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, { ...options, headers: withAuthHeaders(options) });
-  
+async function request(path: string, options: RequestInit = {}) {
+  const res = await fetch(joinApiUrl(API_BASE, path), { ...options, headers: withAuthHeaders(options) });
+
   if (res.status === 401) {
-    // If we get a 401, the key might be invalid
     setStoredApiKey(null);
     throw new Error("Authentication failed. Please check your API key.");
   }
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res));
+  }
+  return res;
+}
+
+async function readErrorMessage(res: Response) {
+  if (res.headers.get("content-type")?.includes("application/json")) {
+    const body = await res.json().catch(() => null);
+    return body?.error || `Request failed with ${res.status}`;
+  }
+  return (await res.text()) || `Request failed with ${res.status}`;
+}
+
+async function fetchApi<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await request(path, options);
 
   if (res.headers.get("content-type")?.includes("application/json")) {
     const data = await res.json();
@@ -172,18 +198,7 @@ async function fetchApi<T = any>(path: string, options: RequestInit = {}): Promi
 }
 
 async function fetchText(path: string, options: RequestInit = {}): Promise<string> {
-  const res = await fetch(path, { ...options, headers: withAuthHeaders(options) });
-  if (res.status === 401) {
-    setStoredApiKey(null);
-    throw new Error("Authentication failed. Please check your API key.");
-  }
-  if (!res.ok) {
-    const message = res.headers.get("content-type")?.includes("application/json")
-      ? (await res.json()).error
-      : await res.text();
-    throw new Error(message || `Request failed with ${res.status}`);
-  }
-  return res.text();
+  return (await request(path, options)).text();
 }
 
 export async function listJobs(): Promise<JobRow[]> {
@@ -228,6 +243,7 @@ export async function getJobStatus(id: string): Promise<JobRow> {
     goal: j.goal,
     maxDepth: j.maxDepth,
     maxPages: j.maxPages,
+    formats: Array.isArray(j.formats) ? j.formats : undefined,
     totalPages: j.totalPages,
     completedPages: j.completedPages,
     progress: j.progress,

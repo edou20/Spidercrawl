@@ -5,7 +5,7 @@ env/
 venv/
 ENV/
 bin/
-lib/
+# lib/ intentionally NOT ignored — src/lib/ is our source code
 include/
 
 # Build and Output

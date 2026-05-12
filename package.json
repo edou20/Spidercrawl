@@ -20,9 +20,10 @@
     "db:migrate": "psql \"$DATABASE_URL\" -f db/schema.sql",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:install": "npm --prefix docs install",
+    "docs:dev": "npm --prefix docs run dev",
+    "docs:build": "npm --prefix docs run build",
+    "docs:preview": "npm --prefix docs run preview"
   },
   "keywords": [
     "crawler",
@@ -45,12 +46,14 @@
     "cron-parser": "^5.5.0",
     "dotenv": "^16.5.0",
     "fastify": "^5.3.3",
+    "fastify-raw-body": "^5.0.0",
     "ioredis": "^5.6.1",
     "nanoid": "^5.1.5",
     "openai": "^6.34.0",
     "pg": "^8.20.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
+    "stripe": "^22.1.1",
     "turndown": "^7.2.0",
     "zod": "^3.24.3"
   },

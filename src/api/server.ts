@@ -2,11 +2,14 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
+import rawBody from "fastify-raw-body";
 import { registerRoutes } from "./routes.js";
 import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
+import { readIntegerEnv } from "../lib/env-utils.js";
 
 /**
  * Creates and configures the Fastify server instance.
@@ -14,19 +17,38 @@ import fs from "node:fs";
 export async function createServer() {
   const app = Fastify({
     logger: false, // We use our own pino instance
-    requestTimeout: 120_000,
+    requestTimeout: readIntegerEnv("REQUEST_TIMEOUT_MS", 120_000, { min: 1 }),
+  });
+
+  // ── Request tracking ──────────────────────────────────────
+  app.addHook("onRequest", async (request) => {
+    const reqId = request.headers["x-request-id"] as string || crypto.randomUUID();
+    request.id = reqId;
+    request.headers["x-request-id"] = reqId;
   });
 
   // ── Plugins ──────────────────────────────────────────────────
   await app.register(cors, { origin: true });
   await app.register(rateLimit, {
-    max: Number(process.env.API_RATE_LIMIT_MAX ?? 1000),
+    max: readIntegerEnv("API_RATE_LIMIT_MAX", 1000, { min: 1 }),
     timeWindow: process.env.API_RATE_LIMIT_WINDOW ?? "1 minute",
+  });
+
+  await app.register(rawBody, {
+    field: "rawBody",
+    global: false,
+    encoding: false,
+    runFirst: true,
   });
 
   // ── API key enforcement ──────────────────────────────────────
   if (process.env.REQUIRE_API_KEY === "true") {
-    const OPEN_ROUTES = new Set(["/health", "/v1/ai/status"]);
+    const OPEN_ROUTES = new Set([
+      "/health",
+      "/v1/ai/status",
+      "/auth/register",
+      "/billing/webhook",
+    ]);
 
     app.addHook("onRequest", async (request, reply) => {
       const urlPath = request.url.split("?")[0];
@@ -103,6 +125,13 @@ export async function createServer() {
 
   // ── API Routes ───────────────────────────────────────────────
   await registerRoutes(app);
+
+  const landingIndex = path.join(process.cwd(), "landing", "index.html");
+  if (fs.existsSync(landingIndex)) {
+    app.get("/", async (_request, reply) => {
+      return reply.type("text/html").send(fs.readFileSync(landingIndex));
+    });
+  }
 
   // ── Dashboard (static SPA at /app) ────────────────────────────
   const dashboardDist = path.resolve(process.cwd(), "dashboard/dist");

@@ -6,8 +6,17 @@ CREATE TABLE IF NOT EXISTS organizations (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name          TEXT NOT NULL,
   slug          TEXT NOT NULL UNIQUE,
+  email         TEXT,
+  plan          TEXT NOT NULL DEFAULT 'free',
+  stripe_customer_id TEXT,
+  stripe_subscription_id TEXT,
+  pages_used    INT NOT NULL DEFAULT 0,
+  pages_quota   INT NOT NULL DEFAULT 10000,
+  period_reset_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS organizations_email_lower_idx ON organizations (lower(email)) WHERE email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS api_keys (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -2,30 +2,34 @@ import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { Settings, Key, Plus, Trash2, Copy, CheckCheck, Code2, Terminal, Globe, Zap, Eye, EyeOff, AlertTriangle, Bell, Share2, Bot, Wrench } from "lucide-react";
 import { listApiKeys, createApiKey, revokeApiKey, ApiKey, listWebhooks, createWebhook, deleteWebhook, WebhookRow, CreatedWebhookRow } from "../api";
+import { resolveApiBaseUrl } from "../api-base";
 
-const BASE = typeof window !== "undefined" ? window.location.origin : "http://localhost:3200";
+const API_BASE = resolveApiBaseUrl(
+  typeof window !== "undefined" ? window.location.origin : "http://localhost:3200",
+  import.meta.env.VITE_BACKEND_URL
+);
 
 const CODE_SNIPPETS: Record<"curl" | "python" | "agent", (key: string) => string> = {
   curl: (key: string) => `# Scrape a single page
-curl -X POST ${BASE}/v1/scrape \\
+curl -X POST ${API_BASE}/v1/scrape \\
   -H "Authorization: Bearer ${key}" \\
   -H "Content-Type: application/json" \\
   -d '{"url":"https://example.com","formats":["markdown"]}'
 
 # Start a crawl job
-curl -X POST ${BASE}/v1/crawl \\
+curl -X POST ${API_BASE}/v1/crawl \\
   -H "Authorization: Bearer ${key}" \\
   -H "Content-Type: application/json" \\
   -d '{"url":"https://docs.example.com","maxDepth":3,"maxPages":100,"goal":"Find all API docs"}'
 
 # List your crawl jobs
-curl ${BASE}/v1/jobs \\
+curl ${API_BASE}/v1/jobs \\
   -H "Authorization: Bearer ${key}"`,
 
   python: (key: string) => `import httpx
 
 client = httpx.Client(
-    base_url="${BASE}",
+    base_url="${API_BASE}",
     headers={"Authorization": f"Bearer ${key}"},
     timeout=60,
 )
@@ -68,7 +72,7 @@ for r in results:
 // Use Spidercrawl as a tool to fetch and search web content
 
 const SPIDERCRAWL_KEY = "${key}";
-const BASE = "${BASE}";
+const BASE = "${API_BASE}";
 
 async function spiderScrape(url: string): Promise<string> {
   const res = await fetch(\`\${BASE}/v1/scrape\`, {
@@ -137,6 +141,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<"keys" | "integration" | "webhooks" | "mcp">("keys");
   const [lang, setLang] = useState<"curl" | "python" | "agent">("agent");
   const [showKey, setShowKey] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [webhooks, setWebhooks] = useState<WebhookRow[]>([]);
   const [newWebhook, setNewWebhook] = useState<CreatedWebhookRow | null>(null);
@@ -144,22 +149,33 @@ export default function SettingsPage() {
   const [webhookEvent, setWebhookEvent] = useState("job.completed");
 
   const demoKey = newKey?.key ?? (keys[0] ? `sk-sc-${"•".repeat(36)}` : "YOUR_API_KEY");
+  const snippet = CODE_SNIPPETS[lang](demoKey);
 
   useEffect(() => {
     setTab(location.pathname.endsWith("/config") ? "integration" : "keys");
   }, [location.pathname]);
 
-  useEffect(() => { 
-    loadKeys(); 
+  useEffect(() => {
+    if (tab === "keys" || tab === "integration") loadKeys();
     if (tab === "webhooks") loadWebhooks();
   }, [tab]);
 
   async function loadKeys() {
-    try { setKeys(await listApiKeys()); } catch {}
+    try {
+      setKeys(await listApiKeys());
+      setError(null);
+    } catch (e: any) {
+      setError(`Failed to load API keys: ${e.message}`);
+    }
   }
 
   async function loadWebhooks() {
-    try { setWebhooks(await listWebhooks()); } catch {}
+    try {
+      setWebhooks(await listWebhooks());
+      setError(null);
+    } catch (e: any) {
+      setError(`Failed to load webhooks: ${e.message}`);
+    }
   }
   async function handleCreate() {
     if (!newName.trim()) return;
@@ -169,13 +185,21 @@ export default function SettingsPage() {
       setNewKey(k);
       setNewName("");
       await loadKeys();
-    } catch {}
+      setError(null);
+    } catch (e: any) {
+      setError(`Failed to create API key: ${e.message}`);
+    }
     finally { setBusy(false); }
   }
   async function handleRevoke(id: string) {
-    await revokeApiKey(id);
-    setRevokeConfirm(null);
-    setKeys(k => k.filter(x => x.id !== id));
+    try {
+      await revokeApiKey(id);
+      setRevokeConfirm(null);
+      setKeys(k => k.filter(x => x.id !== id));
+      setError(null);
+    } catch (e: any) {
+      setError(`Failed to revoke API key: ${e.message}`);
+    }
   }
   async function handleCreateWebhook() {
     if (!webhookUrl.trim()) return;
@@ -205,11 +229,17 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="stack-lg anim-up" style={{ maxWidth: 860 }}>
+    <div className="stack-lg anim-up" style={{ maxWidth: 1040 }}>
       <div className="page-header">
         <h1><Settings size={18} style={{ display: "inline", marginRight: 8, verticalAlign: "middle", color: "var(--text-tertiary)" }} />Settings</h1>
         <p>Manage API keys and integrate Spidercrawl with your AI agents and workflows.</p>
       </div>
+
+      {error && (
+        <div className="msg-banner err">
+          <AlertTriangle size={13} /> {error}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="tabs" style={{ display: "inline-flex" }}>
@@ -422,12 +452,12 @@ OPENAI_API_KEY=your-openai-key`}
               <button
                 className="btn btn-ghost btn-sm"
                 style={{ position: "absolute", top: 10, right: 12, zIndex: 2, fontSize: 11 }}
-                onClick={() => copy(CODE_SNIPPETS[lang](demoKey), "snippet")}
+                onClick={() => copy(snippet, "snippet")}
               >
                 {copied === "snippet" ? <><CheckCheck size={11} /> Copied</> : <><Copy size={11} /> Copy</>}
               </button>
               <pre className="code-block" style={{ borderRadius: "0 0 var(--r-lg) var(--r-lg)", border: "none", borderTop: "1px solid var(--border-subtle)", maxHeight: 520, fontSize: 12.5 }}>
-                {CODE_SNIPPETS[lang](demoKey)}
+                {snippet}
               </pre>
             </div>
           </div>
@@ -593,7 +623,7 @@ OPENAI_API_KEY=your-openai-key`}
                 <div className="text-xs text-tertiary" style={{ marginBottom: 6, fontWeight: 600 }}>Claude Code (<code className="font-mono" style={{ fontSize: 11 }}>~/.claude.json</code> or <code className="font-mono" style={{ fontSize: 11 }}>project/.claude/mcp.json</code>)</div>
                 <div style={{ position: "relative" }}>
                   <button className="btn btn-ghost btn-sm" style={{ position: "absolute", top: 8, right: 8, zIndex: 2, fontSize: 11 }}
-                    onClick={() => copy(`{\n  "mcpServers": {\n    "spidercrawl": {\n      "command": "node",\n      "args": ["${BASE.replace("http://", "").replace("https://", "").split(":")[0]}/dist/mcp/index.js"]\n    }\n  }\n}`, "mcp-claude")}>
+                    onClick={() => copy(`{\n  "mcpServers": {\n    "spidercrawl": {\n      "command": "node",\n      "args": ["/path/to/spidercrawl/dist/mcp/index.js"]\n    }\n  }\n}`, "mcp-claude")}>
                     {copied === "mcp-claude" ? <><CheckCheck size={11} /> Copied</> : <><Copy size={11} /> Copy</>}
                   </button>
                   <pre className="code-block" style={{ fontSize: 12 }}>{`{

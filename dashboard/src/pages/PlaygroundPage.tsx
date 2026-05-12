@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Zap, Play, Copy, CheckCheck, FileText, Code2, Eye, Globe } from "lucide-react";
 import { getStoredApiKey } from "../api";
+import { joinApiUrl, resolveApiBaseUrl } from "../api-base";
 
 const EXAMPLES = [
   { label: "Apple iPhone", url: "https://www.apple.com/iphone/" },
@@ -20,6 +21,11 @@ interface ScrapeResult {
   statusCode: number;
 }
 
+const API_BASE = resolveApiBaseUrl(
+  typeof window !== "undefined" ? window.location.origin : "http://localhost:3200",
+  import.meta.env.VITE_BACKEND_URL
+);
+
 export default function PlaygroundPage() {
   const [url,        setUrl]        = useState("");
   const [mode,       setMode]       = useState<OutputMode>("markdown");
@@ -34,7 +40,7 @@ export default function PlaygroundPage() {
     setBusy(true); setErr(null); setResult(null);
     try {
       const apiKey = getStoredApiKey();
-      const res = await fetch("/v1/scrape", {
+      const res = await fetch(joinApiUrl(API_BASE, "/v1/scrape"), {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -72,7 +78,7 @@ export default function PlaygroundPage() {
     : "";
 
   return (
-    <div className="stack-lg anim-up" style={{ maxWidth: 900 }}>
+    <div className="playground-page stack-lg anim-up">
       <div className="page-header">
         <h1>
           <Zap size={18} style={{ color: "var(--brand)", flexShrink: 0 }} />
@@ -127,7 +133,7 @@ export default function PlaygroundPage() {
 
           {/* Format picker */}
           <div>
-            <label className="input-label" style={{ display: "block", marginBottom: 8 }}>
+            <label className="input-label playground-format-label">
               Output Format
             </label>
             <div className="chip-group">
@@ -191,32 +197,23 @@ export default function PlaygroundPage() {
           </div>
 
           {previewTab === "output" ? (
-            <pre className="code-block" style={{
-              borderRadius: "0 0 var(--r-lg) var(--r-lg)",
-              border: "none",
-              borderTop: "1px solid var(--border-subtle)",
-              maxHeight: 520,
-              fontSize: 12.5,
-              color: "var(--text-secondary)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}>
+            <pre className="code-block playground-output">
               {outputText || <span style={{ color: "var(--text-disabled)" }}>No output</span>}
             </pre>
           ) : (
             <div className="card-body">
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
+              <div className="playground-meta-grid">
                 {[
                   ["title", result.title || "—"],
                   ["elapsed", `${result.elapsedMs}ms`],
                   ["status", String(result.statusCode)],
                   ...Object.entries(result.metadata ?? {}),
                 ].map(([k, v]) => (
-                  <div key={k} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <span className="text-xs text-disabled" style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  <div key={k} className="playground-meta-item">
+                    <span className="text-xs text-disabled">
                       {k}
                     </span>
-                    <span className="text-sm text-secondary font-mono" style={{ wordBreak: "break-all" }}>
+                    <span className="text-sm text-secondary font-mono">
                       {typeof v === "object" ? JSON.stringify(v) : String(v ?? "—")}
                     </span>
                   </div>
@@ -229,16 +226,9 @@ export default function PlaygroundPage() {
 
       {/* ── Empty state ───────────────────────────────────────── */}
       {!result && !busy && !err && (
-        <div style={{
-          textAlign: "center",
-          padding: "52px 24px",
-          color: "var(--text-disabled)",
-          border: "1px dashed var(--border-subtle)",
-          borderRadius: "var(--r-lg)",
-          background: "rgba(0,0,0,0.10)",
-        }}>
-          <Zap size={30} style={{ margin: "0 auto 12px", display: "block", opacity: 0.3 }} />
-          <p style={{ margin: 0, fontSize: 13 }}>Enter a URL above and hit Run to see the extracted content.</p>
+        <div className="playground-empty-state">
+          <Zap size={30} />
+          <p>Enter a URL above and hit Run to see the extracted content.</p>
         </div>
       )}
     </div>

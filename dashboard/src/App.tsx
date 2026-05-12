@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Globe, Plus, Settings, Zap, Key, Search, Calendar } from "lucide-react";
+import { LayoutDashboard, Globe, Plus, Settings, Zap, Key, Search, Calendar, BookOpen } from "lucide-react";
 import DashboardPage from "./pages/DashboardPage";
 import NewCrawlPage from "./pages/NewCrawlPage";
 import JobDetailPage from "./pages/JobDetailPage";
@@ -10,6 +10,12 @@ import SearchPage from "./pages/SearchPage";
 import SchedulesPage from "./pages/SchedulesPage";
 import SystemStatusBar from "./components/SystemStatusBar";
 import { getStats } from "./api";
+import { resolveDocsUrl } from "./api-base";
+
+const DOCS_URL = resolveDocsUrl(
+  typeof window !== "undefined" ? window.location.origin : "http://localhost:3200",
+  import.meta.env.VITE_DOCS_URL
+);
 
 function Logo() {
   return (
@@ -35,8 +41,8 @@ function NavItem({ to, icon: Icon, label, badge, end }: {
 }
 
 export default function App() {
-  const [aiOn, setAiOn] = useState(false);
   const [activeJobs, setActiveJobs] = useState(0);
+  const [quickSearch, setQuickSearch] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -45,7 +51,6 @@ export default function App() {
       try {
         const d = await getStats();
         if (!alive) return;
-        setAiOn(!!d?.aiAvailable);
         setActiveJobs(d?.activeJobs ?? 0);
       } catch {}
     };
@@ -54,11 +59,30 @@ export default function App() {
     return () => { alive = false; clearInterval(t); };
   }, []);
 
+  const submitQuickSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const q = quickSearch.trim();
+    if (!q) {
+      navigate("/search");
+      return;
+    }
+    navigate(`/search?q=${encodeURIComponent(q)}`);
+  };
+
   return (
     <div className="shell">
       {/* ── Topbar ──────────────────────────────────── */}
       <header className="topbar">
         <Logo />
+        <form className="topbar-search" onSubmit={submitQuickSearch} role="search" aria-label="Search crawl knowledge">
+          <Search size={15} />
+          <input
+            value={quickSearch}
+            onChange={(event) => setQuickSearch(event.target.value)}
+            placeholder="Search knowledge..."
+          />
+          <span className="topbar-search-kbd">/</span>
+        </form>
         <div className="topbar-actions">
           <SystemStatusBar />
           <div className="divider-v" style={{ margin: "0 4px" }} />
@@ -72,6 +96,10 @@ export default function App() {
             <Zap size={13} />
             Playground
           </button>
+          <a className="btn btn-ghost btn-sm" href={DOCS_URL} target="_blank" rel="noreferrer">
+            <BookOpen size={13} />
+            Docs
+          </a>
           <button className="btn btn-primary btn-sm" onClick={() => navigate("/new")}>
             <Plus size={13} />
             New Crawl

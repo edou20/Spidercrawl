@@ -21,5 +21,6 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/dashboard/dist ./dashboard/dist
+COPY landing ./landing
 EXPOSE 3200
 CMD ["node", "dist/index.js"]

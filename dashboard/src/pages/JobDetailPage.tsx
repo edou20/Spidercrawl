@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Search, FileText, Tag, ExternalLink, Cpu, Database, Target,
   Download, RefreshCw, ArrowLeft, Globe, CheckCircle2, AlertTriangle,
@@ -20,6 +20,7 @@ import ErrorDisplay from "../components/ErrorDisplay";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { useCrawlStream } from "../hooks/useCrawlStream";
 import { timeAgo, hostname, pathname } from "../utils";
+import { buildRerunRequest } from "../job-rerun";
 
 type MainTab    = "pages" | "preview" | "graph" | "errors" | "events" | "ask" | "extracted";
 type GraphFilter = "all" | "pages" | string;
@@ -30,7 +31,7 @@ function pageDisplayTitle(page: PageRow) {
 
 function humanizeAskError(message: string) {
   if (/api key not valid|API_KEY_INVALID|rejected the configured API key|invalid api key|unauthorized|permission_denied/i.test(message)) {
-    return "The AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY, then ask again.";
+    return "The AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY, then ask again. For OpenRouter: use OPENAI_BASE_URL=https://openrouter.ai/api/v1 and OPENAI_CHAT_MODEL (e.g. openai/gpt-4o-mini); unset GOOGLE_AI_API_KEY if you want the OpenAI-compatible path.";
   }
   if (/quota|rate limit|too many requests|temporarily unavailable/i.test(message)) {
     return "The AI provider is temporarily unavailable because of quota or rate limits. Try again later or switch providers.";
@@ -48,6 +49,7 @@ function parseFailedPageCount(message?: string | null) {
 
 export default function JobDetailPage() {
   const params = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const id = params.id ?? (
     typeof window !== "undefined"
@@ -86,6 +88,7 @@ export default function JobDetailPage() {
   const askPanelRef = useRef<HTMLDivElement>(null);
   const graphCardRef = useRef<HTMLDivElement>(null);
   const [graphWidth, setGraphWidth] = useState(800);
+  const autoAskHandledRef = useRef(false);
 
   const isActive = job?.status === "processing" || job?.status === "queued";
   const { events: streamEvents, connected } = useCrawlStream(id, isActive);
@@ -218,13 +221,7 @@ export default function JobDetailPage() {
     if (!id || !job) return;
     setBusy("rerunning");
     try {
-      const res = await startCrawl({
-        url: job.rootUrl,
-        goal: job.goal,
-        maxDepth: job.maxDepth ?? 3,
-        maxPages: job.maxPages ?? 50,
-        rerunJobId: id,
-      });
+      const res = await startCrawl(buildRerunRequest(id, job));
       navigate(`/jobs/${res.id}`);
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(null); }
@@ -303,6 +300,21 @@ export default function JobDetailPage() {
       askInputRef.current?.focus();
     }, 80);
   };
+
+  useEffect(() => {
+    const askState = location.state as
+      | { openTab?: "ask"; initialAskQuestion?: string; autoAsk?: boolean }
+      | null;
+    if (!askState?.openTab || askState.openTab !== "ask") return;
+
+    setTab("ask");
+    setAskQ(askState.initialAskQuestion ?? "");
+
+    if (askState.autoAsk && askState.initialAskQuestion?.trim() && !autoAskHandledRef.current) {
+      autoAskHandledRef.current = true;
+      void handleAsk(askState.initialAskQuestion);
+    }
+  }, [location.state, id]);
 
   const openPreview = (url: string) => {
     setPreviewPageUrl(url);
@@ -510,6 +522,29 @@ export default function JobDetailPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="job-knowledge-command">
+        <div className="job-ask-command">
+          <div className="job-command-label"><MessageSquare size={13} /> Ask this crawl</div>
+          <button className="job-ask-input" onClick={openAskTab}>
+            <span>{job.goal ? `What did the crawl find about "${job.goal}"?` : `What does ${hostname(job.rootUrl)} reveal?`}</span>
+            <SendHorizonal size={14} />
+          </button>
+          <p>
+            Ask AI uses crawled page content and returns source-backed answers when an AI provider and indexed content are available.
+          </p>
+        </div>
+        <button className="job-command-card" onClick={() => setTab("graph")}>
+          <div className="job-command-label"><Network size={13} /> Graph readiness</div>
+          <strong>{entityCount > 0 ? `${entityCount} entities` : `${pages.length} pages`}</strong>
+          <span>{entityCount > 0 ? `${entityTypes.length} entity type${entityTypes.length === 1 ? "" : "s"} mapped` : "Open graph to inspect page relationships"}</span>
+        </button>
+        <button className="job-command-card" onClick={() => setTab("pages")}>
+          <div className="job-command-label"><FileText size={13} /> Source memory</div>
+          <strong>{pages.length.toLocaleString()} sources</strong>
+          <span>{pages.length > 0 ? "Search, preview, and export crawled content" : "Sources appear as pages complete"}</span>
+        </button>
       </div>
 
       {/* Summary strip — shown once job is complete */}

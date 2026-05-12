@@ -115,6 +115,8 @@ export interface JobStatus {
   createdAt: string;
   updatedAt: string;
 
+  // crawl format config (echoed from request)
+  formats?: Array<"markdown" | "html" | "json" | "screenshot">;
   // Phase 1.1: extraction stats
   extractedCount?: number;   // pages with successful structured extraction
   extractionPrompt?: string;
