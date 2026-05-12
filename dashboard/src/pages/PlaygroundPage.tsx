@@ -53,7 +53,14 @@ export default function PlaygroundPage() {
         throw new Error(`HTTP ${res.status}: ${t.slice(0, 200)}`);
       }
       const d = await res.json();
-      setResult(d.data ?? d);
+      const raw = d.data ?? d;
+      // Normalise: backend may embed elapsedMs / statusCode inside metadata
+      const meta = raw.metadata ?? {};
+      setResult({
+        ...raw,
+        elapsedMs:  raw.elapsedMs  ?? meta.elapsedMs,
+        statusCode: raw.statusCode ?? meta.statusCode,
+      });
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -111,7 +118,7 @@ export default function PlaygroundPage() {
             <div className="input-with-icon flex-1">
               <Globe size={14} />
               <input
-                type="url"
+                type="text"
                 placeholder="https://example.com/page"
                 value={url}
                 onChange={e => setUrl(e.target.value)}
@@ -172,7 +179,9 @@ export default function PlaygroundPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-tertiary">{result.elapsedMs}ms · HTTP {result.statusCode}</span>
+              <span className="text-xs text-tertiary">
+                {result.elapsedMs != null ? `${result.elapsedMs}ms · ` : ""}HTTP {result.statusCode ?? "—"}
+              </span>
               <div className="tabs">
                 <button
                   className={`tab-btn ${previewTab === "output" ? "active" : ""}`}
@@ -214,9 +223,11 @@ export default function PlaygroundPage() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
                 {[
                   ["title", result.title || "—"],
-                  ["elapsed", `${result.elapsedMs}ms`],
-                  ["status", String(result.statusCode)],
-                  ...Object.entries(result.metadata ?? {}),
+                  ["elapsed", result.elapsedMs != null ? `${result.elapsedMs}ms` : "—"],
+                  ["status", result.statusCode != null ? String(result.statusCode) : "—"],
+                  ...Object.entries(result.metadata ?? {}).filter(
+                    ([k]) => !["elapsedMs", "statusCode", "status"].includes(k)
+                  ),
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     <span className="text-xs text-disabled" style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>

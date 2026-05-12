@@ -773,9 +773,9 @@ select {
   pointer-events: none;
   z-index: 1;
 }
-.input-with-icon input { padding-left: 32px; }
+.input-with-icon input:not([type="checkbox"]):not([type="radio"]) { padding-left: 36px; }
 .input-with-icon.input-sm svg { left: 8px; }
-.input-with-icon.input-sm input { padding-left: 28px; }
+.input-with-icon.input-sm input:not([type="checkbox"]):not([type="radio"]) { padding-left: 30px; }
 
 /* ═══════════════════════════════════════════════════════════════
    BADGES & STATUS
@@ -1797,6 +1797,11 @@ select {
 @keyframes spin     { to{ transform: rotate(360deg); } }
 @keyframes sweep    { 0%{transform:translateX(-100%);} 100%{transform:translateX(200%);} }
 @keyframes pan      { 0%,100%{background-position:0% 50%;} 50%{background-position:100% 50%;} }
+@keyframes slideDown  { from{opacity:0; transform:translateY(-10px);} to{opacity:1; transform:translateY(0);} }
+@keyframes slideRight { from{opacity:0; transform:translateX(-10px);} to{opacity:1; transform:translateX(0);} }
+@keyframes slideUp    { from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+@keyframes shimmer    { 0%{background-position:-200% center;} 100%{background-position:200% center;} }
+@keyframes glow-pulse { 0%,100%{box-shadow:0 0 12px var(--brand-glow);} 50%{box-shadow:0 0 24px var(--brand-glow), 0 0 40px rgba(34,211,238,0.15);} }
 @keyframes fadeUp   { from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:translateY(0);} }
 @keyframes slideIn  { from{opacity:0; transform:translateX(-8px);} to{opacity:1; transform:translateX(0);} }
 @keyframes toastIn  { from{opacity:0; transform:translateY(8px) scale(.96);} to{opacity:1; transform:translateY(0) scale(1);} }
@@ -4943,4 +4948,397 @@ tbody tr.row-failed td {
     right: 16px;
     flex-wrap: wrap;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN SYSTEM ENHANCEMENTS — Smoothness & Polish Pass
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Input caret brand color ──────────────────────────────────── */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea {
+  caret-color: var(--brand);
+}
+
+/* ── Button active press states ───────────────────────────────── */
+.btn-primary:active {
+  transform: translateY(1px) scale(0.985);
+  box-shadow: 0 1px 4px rgba(6, 182, 212, 0.20);
+}
+.btn-secondary:active {
+  transform: translateY(1px);
+  background: var(--bg-active);
+}
+.btn-ghost:active {
+  transform: translateY(1px);
+  background: var(--bg-active);
+}
+.btn-danger:active {
+  transform: translateY(1px);
+}
+
+/* ── Nav item: left-border active accent + smoother hover ─────── */
+.nav-item {
+  position: relative;
+  transition: all 0.2s var(--ease-out);
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--brand-gradient);
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.45);
+}
+.nav-item:hover {
+  transform: translateX(2px);
+}
+.nav-item.active {
+  transform: translateX(2px);
+}
+
+/* ── Card hover: stronger glow on featured cards ─────────────── */
+.stat-card {
+  transition: border-color 0.25s var(--ease-out), transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+}
+.stat-card:hover {
+  border-color: rgba(34, 211, 238, 0.18);
+  box-shadow: var(--shadow-md), 0 0 24px rgba(34, 211, 238, 0.06), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.card {
+  transition: border-color 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+}
+.card:hover {
+  box-shadow: var(--shadow-md), 0 0 18px rgba(34, 211, 238, 0.04);
+}
+
+/* ── Table rows: sliding left-accent on hover ─────────────────── */
+tbody tr.clickable-row {
+  position: relative;
+  transition: background 0.15s var(--ease-out);
+}
+tbody tr.clickable-row td:first-child {
+  position: relative;
+}
+tbody tr.clickable-row:hover td:first-child::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brand-gradient);
+  border-radius: 0 2px 2px 0;
+  opacity: 0.7;
+}
+
+/* ── Source chip hover state (was missing) ────────────────────── */
+.source-chip {
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease, color 0.18s ease;
+}
+.source-chip:hover:not(.source-chip--placeholder) {
+  border-color: rgba(34, 211, 238, 0.30);
+  background: rgba(34, 211, 238, 0.09);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+/* ── Knowledge panel: border glow on hover ────────────────────── */
+.knowledge-panel {
+  transition: border-color 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+}
+.knowledge-panel:hover {
+  border-color: rgba(34, 211, 238, 0.22);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(34, 211, 238, 0.05), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* ── Reliability strip: metric hover highlight ────────────────── */
+.reliability-metric {
+  transition: background 0.2s ease;
+}
+.reliability-metric:hover {
+  background: rgba(34, 211, 238, 0.04);
+}
+
+/* ── Crawl focus card: smoother hover ─────────────────────────── */
+button.crawl-focus-card {
+  transition: transform 0.22s var(--ease-out), border-color 0.22s ease, background 0.22s ease, box-shadow 0.22s ease;
+}
+button.crawl-focus-card:hover {
+  box-shadow: 0 0 0 1px rgba(34,211,238,0.08), var(--shadow-md);
+}
+
+/* ── Badge processing: glow on pulse ─────────────────────────── */
+.badge-processing {
+  animation: badge-processing-glow 2.4s ease-in-out infinite;
+}
+@keyframes badge-processing-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.15); }
+  50%       { box-shadow: 0 0 16px rgba(99, 102, 241, 0.35); }
+}
+
+/* ── Extended stagger delays for larger lists ─────────────────── */
+.anim-up:nth-child(5) { animation-delay: 0.33s; }
+.anim-up:nth-child(6) { animation-delay: 0.40s; }
+.anim-up:nth-child(7) { animation-delay: 0.47s; }
+.anim-up:nth-child(8) { animation-delay: 0.54s; }
+
+/* ── Skeleton loading states ─────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 75%
+  );
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--r-sm);
+}
+.skeleton-text {
+  height: 12px;
+  border-radius: 6px;
+}
+.skeleton-text-lg {
+  height: 18px;
+  border-radius: 6px;
+}
+.skeleton-circle {
+  border-radius: 50%;
+}
+
+/* ── Topbar: polished search input interaction ────────────────── */
+.topbar-search {
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), background 0.2s ease;
+}
+.topbar-search:focus-within {
+  background: rgba(2, 6, 18, 0.82);
+}
+
+/* ── Feed row: smoother selection transition ─────────────────── */
+.feed-row {
+  transition: background 0.18s var(--ease-out);
+}
+.feed-row.selected {
+  transition: background 0.25s var(--ease-out), border-left 0.15s var(--ease-out);
+}
+
+/* ── Tabs: active tab transition ─────────────────────────────── */
+.tab-btn {
+  transition: all 0.18s var(--ease-out);
+}
+
+/* ── Preset/format/profile buttons: focus ring ───────────────── */
+.preset-btn:focus-visible,
+.format-btn:focus-visible,
+.crawl-profile-card:focus-visible,
+.extraction-mode-card:focus-visible,
+.source-chip:focus-visible,
+.crawl-focus-card:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* ── Divider vertical: subtle gradient ──────────────────────────*/
+.divider-v {
+  border-left: 1px solid;
+  border-image: linear-gradient(to bottom, transparent, var(--border-subtle), transparent) 1;
+}
+
+/* ── Empty state icon: subtle float animation ─────────────────── */
+.empty-state svg,
+.empty-state-icon {
+  animation: empty-float 3s ease-in-out infinite;
+}
+@keyframes empty-float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-5px); }
+}
+
+/* ── Brand-icon glow pulse ─────────────────────────────────────── */
+.brand-icon {
+  animation: brand-icon-glow 4s ease-in-out infinite;
+  transition: transform 0.2s var(--ease-out);
+}
+.brand-icon:hover {
+  transform: scale(1.08);
+}
+@keyframes brand-icon-glow {
+  0%, 100% { box-shadow: 0 0 14px rgba(6, 182, 212, 0.35); }
+  50%       { box-shadow: 0 0 22px rgba(6, 182, 212, 0.55), 0 0 40px rgba(99, 102, 241, 0.18); }
+}
+
+/* ── Job command card: hover left-border fill ────────────────── */
+.job-command-card {
+  border-left-width: 3px;
+  border-left-color: transparent;
+  transition: transform 0.2s var(--ease-out), border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+.job-command-card:hover {
+  border-left-color: rgba(34, 211, 238, 0.50);
+  box-shadow: var(--shadow-md), 0 0 18px rgba(34, 211, 238, 0.06);
+}
+
+/* ── Ask suggestion pill: smoother hover ─────────────────────── */
+.ask-suggestion {
+  transition: color 0.18s var(--ease-out), border-color 0.18s ease, background 0.18s ease, transform 0.18s var(--ease-out);
+}
+
+/* ── Status filter pill: active underline indicator ─────────── */
+.status-filter-pill {
+  position: relative;
+}
+.status-filter-pill.active::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--brand-gradient);
+  opacity: 0.7;
+}
+
+/* ── Live job card hover ────────────────────────────────────── */
+.live-job-card {
+  transition: background 0.18s var(--ease-out), transform 0.18s var(--ease-out);
+}
+.live-job-card:hover {
+  transform: scale(1.005);
+}
+
+/* ── Smooth scrollbar thumb ──────────────────────────────────── */
+::-webkit-scrollbar-thumb {
+  transition: background 0.2s ease;
+}
+
+/* ── Stat card action button: better transitions ─────────────── */
+.stat-card-action {
+  transition: border-color 0.2s var(--ease-out), background 0.2s ease, transform 0.2s var(--ease-out), box-shadow 0.2s ease;
+}
+.stat-card-action:hover {
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.18);
+}
+
+/* ── Chip hover ─────────────────────────────────────────────── */
+.chip {
+  transition: all 0.18s var(--ease-out);
+}
+
+/* ── Crawl mini link: smoother ──────────────────────────────── */
+.crawl-mini-link {
+  transition: border-color 0.2s var(--ease-out), background 0.2s ease, transform 0.15s ease;
+}
+.crawl-mini-link:hover {
+  transform: translateX(2px);
+}
+
+/* ── Graph chip button: smoother ────────────────────────────── */
+.graph-chip-btn {
+  transition: border-color 0.18s var(--ease-out), background 0.18s ease, transform 0.18s var(--ease-out), box-shadow 0.18s ease;
+}
+.graph-chip-btn:hover {
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.12);
+}
+
+/* ── Search result card: smoother ───────────────────────────── */
+.search-result-card {
+  transition: border-color 0.2s var(--ease-out), background 0.2s ease, transform 0.2s var(--ease-out), box-shadow 0.2s ease;
+}
+.search-result-card:hover {
+  box-shadow: 0 0 14px rgba(6, 182, 212, 0.07);
+}
+
+/* ── Overview recent row: brand-tinted hover ────────────────── */
+.overview-recent-row {
+  transition: background 0.18s var(--ease-out);
+  position: relative;
+}
+.overview-recent-row:hover {
+  background: rgba(34, 211, 238, 0.055) !important;
+}
+.overview-recent-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: var(--brand-gradient);
+  opacity: 0;
+  border-radius: 0 2px 2px 0;
+  transition: width 0.2s var(--ease-out), opacity 0.2s ease;
+}
+.overview-recent-row:hover::before {
+  width: 2px;
+  opacity: 0.7;
+}
+
+/* ── Topbar live badge: amber glow ─────────────────────────── */
+.topbar-live-badge {
+  animation: live-badge-pulse 2s ease-in-out infinite;
+}
+@keyframes live-badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+  50%       { box-shadow: 0 0 8px 0 rgba(251,191,36,0.18); }
+}
+
+/* ── Extraction mode card: transition refinement ────────────── */
+.extraction-mode-card {
+  transition: border-color 0.2s var(--ease-out), background 0.2s ease, box-shadow 0.2s ease;
+}
+.extraction-mode-card.selected {
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.18), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* ── Format button: icon pop on selected ───────────────────── */
+.format-btn {
+  transition: transform 0.2s var(--ease-out), border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.format-btn.on {
+  box-shadow: 0 0 0 1px rgba(34,211,238,0.12), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* ── Progress bar: glow on animated ────────────────────────── */
+.progress-fill--animated {
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.30);
+}
+
+/* ── System status bar: transition ─────────────────────────── */
+.sys-dot-light {
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+}
+
+/* ── Back link: animated arrow ──────────────────────────────── */
+.back-link svg {
+  transition: transform 0.18s var(--ease-out);
+}
+.back-link:hover svg {
+  transform: translateX(-2px);
+}
+
+/* ── Knowledge table row hover accent ───────────────────────── */
+.knowledge-table tr.clickable-row:hover td:first-child::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brand-gradient);
+  border-radius: 0 2px 2px 0;
+  opacity: 0.6;
+}
+.knowledge-table tr.clickable-row td:first-child {
+  position: relative;
 }
