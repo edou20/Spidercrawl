@@ -6,6 +6,7 @@ import {
   applySubscriptionToOrg,
   defaultPagesQuotaForPlan,
   getOrgForAuth,
+  resetOrgPagesUsed,
   setOrgToFreeTier,
   updateOrgStripeCustomer,
 } from "../lib/org-billing.js";
@@ -88,6 +89,22 @@ export async function registerBillingRoutes(app: FastifyInstance) {
             if (orgId) await setOrgToFreeTier(orgId);
             break;
           }
+          case "invoice.paid":
+          case "invoice.payment_succeeded": {
+            // Reset monthly usage counter when a new billing period begins
+            const inv = (event as { data: { object: unknown } }).data.object as {
+              customer?: string;
+              billing_reason?: string;
+            };
+            // Only reset on subscription renewals, not the first-ever payment
+            if (inv.billing_reason === "subscription_cycle" && inv.customer) {
+              const stripe = getStripe()!;
+              const customer = await stripe.customers.retrieve(inv.customer) as { metadata?: { org_id?: string } };
+              const orgId = customer.metadata?.org_id;
+              if (orgId) await resetOrgPagesUsed(orgId);
+            }
+            break;
+          }
           default:
             break;
         }
@@ -154,6 +171,30 @@ export async function registerBillingRoutes(app: FastifyInstance) {
     if (!session.url) {
       return reply.status(500).send({ success: false, error: "Stripe did not return a checkout URL" });
     }
+    return reply.send({ success: true, data: { url: session.url } });
+  });
+
+  app.post("/billing/portal", async (request, reply) => {
+    const stripe = getStripe();
+    if (!stripe) {
+      return reply.status(503).send({ success: false, error: "Stripe is not configured (STRIPE_SECRET_KEY)." });
+    }
+    const orgId = request.orgId ?? (await resolveOrgIdFromBearer(request.headers.authorization));
+    if (!orgId) {
+      return reply.status(401).send({ success: false, error: "Authentication required" });
+    }
+    const org = await getOrgForAuth(orgId);
+    if (!org) {
+      return reply.status(404).send({ success: false, error: "Organization not found" });
+    }
+    if (!org.stripe_customer_id) {
+      return reply.status(400).send({ success: false, error: "No active subscription found — start a plan first." });
+    }
+    const appUrl = (process.env.APP_URL || "http://127.0.0.1:3200").replace(/\/+$/, "");
+    const session = await stripe.billingPortal.sessions.create({
+      customer: org.stripe_customer_id,
+      return_url: `${appUrl}/app/settings`,
+    });
     return reply.send({ success: true, data: { url: session.url } });
   });
 }

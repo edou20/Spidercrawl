@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spidercrawl — AI-native web intelligence</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0d14;
+      --surface: #13131f;
+      --border: #1e1e2e;
+      --brand: #7c3aed;
+      --brand-light: #a78bfa;
+      --text: #e2e8f0;
+      --text-2: #94a3b8;
+      --text-3: #64748b;
+      --green: #22c55e;
+      --red: #ef4444;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+    .container { width: 100%; max-width: 480px; }
+    .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
+    .logo-icon { width: 36px; height: 36px; background: var(--brand); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .logo-text { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    .logo-badge { font-size: 11px; background: rgba(124,58,237,0.2); color: var(--brand-light); border: 1px solid rgba(124,58,237,0.3); border-radius: 4px; padding: 2px 7px; margin-left: 4px; }
+    h1 { font-size: 28px; font-weight: 700; line-height: 1.2; letter-spacing: -0.5px; margin-bottom: 10px; }
+    h1 span { color: var(--brand-light); }
+    .subtitle { color: var(--text-2); font-size: 15px; line-height: 1.6; margin-bottom: 32px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
+    .card-title { font-size: 14px; font-weight: 600; margin-bottom: 20px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
+    input { width: 100%; background: #0d0d14; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 14px; color: var(--text); font-family: var(--font); outline: none; transition: border-color 0.15s; }
+    input:focus { border-color: var(--brand); }
+    input::placeholder { color: var(--text-3); }
+    .btn { width: 100%; padding: 12px; background: var(--brand); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; margin-top: 8px; }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; color: #fca5a5; font-size: 13px; padding: 10px 14px; margin-top: 14px; display: none; }
+    .success-box { display: none; }
+    .success-box.visible { display: block; }
+    .success-header { display: flex; align-items: center; gap: 8px; color: var(--green); font-weight: 600; font-size: 15px; margin-bottom: 16px; }
+    .key-wrap { background: #0d0d14; border: 1px solid rgba(34,197,94,0.2); border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .key-text { font-family: var(--mono); font-size: 13px; color: #86efac; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .copy-btn { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.25); border-radius: 6px; color: var(--green); font-size: 12px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+    .copy-btn:hover { background: rgba(34,197,94,0.25); }
+    .notice { font-size: 12px; color: var(--text-3); background: rgba(251,191,36,0.06); border: 1px solid rgba(251,191,36,0.15); border-radius: 6px; padding: 8px 12px; margin-bottom: 16px; }
+    .dashboard-link { display: block; text-align: center; background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.25); border-radius: 8px; padding: 12px; color: var(--brand-light); font-size: 14px; font-weight: 500; text-decoration: none; }
+    .dashboard-link:hover { background: rgba(124,58,237,0.2); }
+    .divider { text-align: center; margin: 16px 0; color: var(--text-3); font-size: 12px; }
+    .features { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 24px; }
+    .feature { display: flex; align-items: flex-start; gap: 8px; }
+    .feat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); margin-top: 6px; flex-shrink: 0; }
+    .feat-text { font-size: 13px; color: var(--text-2); line-height: 1.4; }
+    .login-link { text-align: center; margin-top: 20px; font-size: 13px; color: var(--text-3); }
+    .login-link a { color: var(--brand-light); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <div class="logo-icon">🕷️</div>
+      <div class="logo-text">Spidercrawl <span class="logo-badge">BETA</span></div>
+    </div>
+
+    <h1>Web intelligence for<br /><span>AI agents</span></h1>
+    <p class="subtitle">Turn any website into structured data. Crawl, extract, and search web content with a single API call.</p>
+
+    <div class="card">
+      <!-- Registration form -->
+      <div id="reg-form">
+        <div class="card-title">Create free account</div>
+        <div class="form-group">
+          <label for="org-name">Organization name</label>
+          <input id="org-name" type="text" placeholder="Acme AI" autocomplete="organization" />
+        </div>
+        <div class="form-group">
+          <label for="email">Work email</label>
+          <input id="email" type="email" placeholder="you@company.com" autocomplete="email" />
+        </div>
+        <button class="btn" id="reg-btn" onclick="register()">Get your free API key →</button>
+        <div class="error" id="reg-error"></div>
+      </div>
+
+      <!-- Success state -->
+      <div class="success-box" id="success-box">
+        <div class="success-header">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          API key created — save it now
+        </div>
+        <div class="key-wrap">
+          <span class="key-text" id="key-display"></span>
+          <button class="copy-btn" onclick="copyKey()">Copy</button>
+        </div>
+        <div class="notice">⚠ This key will not be shown again. Copy it before closing this page.</div>
+        <a class="dashboard-link" id="dash-link" href="/app">Open Dashboard →</a>
+        <div class="divider">— or use your key directly —</div>
+        <pre id="curl-snippet" style="background:#0d0d14;border:1px solid var(--border);border-radius:8px;padding:14px;font-size:12px;color:var(--text-2);overflow:auto;line-height:1.6;font-family:var(--mono)"></pre>
+      </div>
+    </div>
+
+    <div class="features">
+      <div class="feature"><div class="feat-dot"></div><div class="feat-text">Markdown + HTML extraction</div></div>
+      <div class="feature"><div class="feat-dot"></div><div class="feat-text">Structured JSON output</div></div>
+      <div class="feature"><div class="feat-dot"></div><div class="feat-text">Semantic vector search</div></div>
+      <div class="feature"><div class="feat-dot"></div><div class="feat-text">Adaptive crawl budget</div></div>
+      <div class="feature"><div class="feat-dot"></div><div class="feat-text">Scheduled crawls</div></div>
+      <div class="feature"><div class="feat-dot"></div><div class="feat-text">MCP server for Claude</div></div>
+    </div>
+
+    <div class="login-link">Already have an account? <a href="/app">Sign in →</a></div>
+  </div>
+
+  <script>
+    let apiKey = "";
+
+    async function register() {
+      const name = document.getElementById("org-name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const errEl = document.getElementById("reg-error");
+      errEl.style.display = "none";
+
+      if (!name) { showErr("Please enter your organization name."); return; }
+      if (!email || !email.includes("@")) { showErr("Please enter a valid email address."); return; }
+
+      const btn = document.getElementById("reg-btn");
+      btn.disabled = true;
+      btn.textContent = "Creating account…";
+
+      try {
+        const res = await fetch("/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        apiKey = json.data?.apiKey ?? json.apiKey;
+        showSuccess(apiKey);
+      } catch (e) {
+        showErr(e.message);
+        btn.disabled = false;
+        btn.textContent = "Get your free API key →";
+      }
+    }
+
+    function showErr(msg) {
+      const el = document.getElementById("reg-error");
+      el.textContent = msg;
+      el.style.display = "block";
+    }
+
+    function showSuccess(key) {
+      document.getElementById("reg-form").style.display = "none";
+      const box = document.getElementById("success-box");
+      box.classList.add("visible");
+      document.getElementById("key-display").textContent = key;
+      const base = window.location.origin;
+      document.getElementById("curl-snippet").textContent =
+        `curl -X POST ${base}/v1/scrape \\\n  -H "Authorization: Bearer ${key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"url":"https://example.com","formats":["markdown"]}'`;
+    }
+
+    function copyKey() {
+      navigator.clipboard.writeText(apiKey).then(() => {
+        const btn = document.querySelector(".copy-btn");
+        btn.textContent = "Copied!";
+        setTimeout(() => { btn.textContent = "Copy"; }, 1800);
+      });
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "Enter") register();
+    });
+  </script>
+</body>
+</html>

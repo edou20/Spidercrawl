@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Settings, Key, Plus, Trash2, Copy, CheckCheck, Code2, Terminal, Globe, Zap, Eye, EyeOff, AlertTriangle, Bell, Share2, Bot, Wrench } from "lucide-react";
-import { listApiKeys, createApiKey, revokeApiKey, ApiKey, listWebhooks, createWebhook, deleteWebhook, WebhookRow, CreatedWebhookRow } from "../api";
+import { Settings, Key, Plus, Trash2, Copy, CheckCheck, Code2, Terminal, Globe, Zap, Eye, EyeOff, AlertTriangle, Bell, Share2, Bot, Wrench, CreditCard, TrendingUp } from "lucide-react";
+import { listApiKeys, createApiKey, revokeApiKey, ApiKey, listWebhooks, createWebhook, deleteWebhook, WebhookRow, CreatedWebhookRow, getOrgBilling, startCheckout, getBillingPortalUrl, OrgBilling } from "../api";
 import { resolveApiBaseUrl } from "../api-base";
 
 const API_BASE = resolveApiBaseUrl(
@@ -138,7 +138,9 @@ export default function SettingsPage() {
   const [newKey, setNewKey] = useState<ApiKey | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [revokeConfirm, setRevokeConfirm] = useState<string | null>(null);
-  const [tab, setTab] = useState<"keys" | "integration" | "webhooks" | "mcp">("keys");
+  const [tab, setTab] = useState<"keys" | "integration" | "webhooks" | "mcp" | "billing">("keys");
+  const [billing, setBilling] = useState<OrgBilling | null>(null);
+  const [billingBusy, setBillingBusy] = useState(false);
   const [lang, setLang] = useState<"curl" | "python" | "agent">("agent");
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +160,38 @@ export default function SettingsPage() {
   useEffect(() => {
     if (tab === "keys" || tab === "integration") loadKeys();
     if (tab === "webhooks") loadWebhooks();
+    if (tab === "billing") loadBilling();
   }, [tab]);
+
+  async function loadBilling() {
+    try {
+      setBilling(await getOrgBilling());
+    } catch {
+      // silently fail — billing info not critical
+    }
+  }
+
+  async function handleCheckout(plan: "starter" | "pro") {
+    setBillingBusy(true);
+    try {
+      const url = await startCheckout(plan);
+      window.location.href = url;
+    } catch (e: any) {
+      setError(`Checkout failed: ${e.message}`);
+      setBillingBusy(false);
+    }
+  }
+
+  async function handlePortal() {
+    setBillingBusy(true);
+    try {
+      const url = await getBillingPortalUrl();
+      window.location.href = url;
+    } catch (e: any) {
+      setError(`Could not open billing portal: ${e.message}`);
+      setBillingBusy(false);
+    }
+  }
 
   async function loadKeys() {
     try {
@@ -254,6 +287,9 @@ export default function SettingsPage() {
         </button>
         <button className={`tab-btn ${tab === "mcp" ? "active" : ""}`} onClick={() => setTab("mcp")}>
           <Bot size={12} /> MCP Server
+        </button>
+        <button className={`tab-btn ${tab === "billing" ? "active" : ""}`} onClick={() => setTab("billing")}>
+          <CreditCard size={12} /> Billing
         </button>
       </div>
 
@@ -703,6 +739,76 @@ OPENAI_API_KEY=your-openai-key`}
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Billing Tab ────────────────────────────────── */}
+      {tab === "billing" && (
+        <div className="stack">
+          {/* Current plan */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title"><TrendingUp size={14} /> Current Plan</span>
+              {billing && (
+                <span className="badge badge-sm" style={{ textTransform: "capitalize", background: billing.plan === "free" ? "rgba(100,100,100,0.2)" : "rgba(139,92,246,0.15)", color: billing.plan === "free" ? "var(--text-secondary)" : "#a78bfa" }}>
+                  {billing.plan}
+                </span>
+              )}
+            </div>
+            <div className="card-body stack-sm">
+              {billing ? (
+                <>
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span className="text-sm text-secondary">Pages used this period</span>
+                      <span className="text-sm font-semibold">{billing.pagesUsed.toLocaleString()} / {billing.pagesQuota.toLocaleString()}</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 999, background: "var(--bg-elevated)", overflow: "hidden" }}>
+                      <div style={{
+                        height: "100%",
+                        width: `${Math.min(100, Math.round(billing.pagesUsed / billing.pagesQuota * 100))}%`,
+                        background: billing.pagesUsed / billing.pagesQuota >= 0.9 ? "#f87171" : billing.pagesUsed / billing.pagesQuota >= 0.8 ? "#fbbf24" : "var(--brand)",
+                        borderRadius: 999,
+                        transition: "width 0.4s ease",
+                      }} />
+                    </div>
+                  </div>
+                  {billing.stripeCustomerId && (
+                    <button className="btn btn-secondary btn-sm" style={{ alignSelf: "flex-start" }} onClick={handlePortal} disabled={billingBusy}>
+                      {billingBusy ? <span className="spinner" /> : <><CreditCard size={12} /> Manage subscription</>}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-secondary">Loading billing info…</p>
+              )}
+            </div>
+          </div>
+
+          {/* Upgrade plans */}
+          {billing?.plan === "free" && (
+            <div className="card">
+              <div className="card-header"><span className="card-title"><Zap size={14} /> Upgrade Plan</span></div>
+              <div className="card-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {([
+                  { id: "starter" as const, name: "Starter", pages: "100,000 pages/mo", price: "$29/mo", desc: "Perfect for small teams and projects." },
+                  { id: "pro" as const, name: "Pro", pages: "500,000 pages/mo", price: "$99/mo", desc: "For power users and production pipelines." },
+                ] as const).map(plan => (
+                  <div key={plan.id} style={{ border: "1px solid var(--border-default)", borderRadius: 10, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 15 }}>{plan.name}</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--brand)", margin: "4px 0" }}>{plan.price}</div>
+                      <div className="text-sm text-secondary">{plan.pages}</div>
+                      <div className="text-xs text-tertiary" style={{ marginTop: 4 }}>{plan.desc}</div>
+                    </div>
+                    <button className="btn btn-primary btn-sm" onClick={() => handleCheckout(plan.id)} disabled={billingBusy} style={{ marginTop: "auto" }}>
+                      {billingBusy ? <span className="spinner" /> : <>Upgrade to {plan.name} →</>}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

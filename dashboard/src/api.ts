@@ -496,3 +496,40 @@ export async function getJobExtractedData(
   const res = await fetchApi(`/v1/jobs/${jobId}/extracted?limit=${limit}`);
   return Array.isArray(res) ? res : [];
 }
+
+export interface OrgBilling {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  pagesUsed: number;
+  pagesQuota: number;
+  stripeCustomerId: string | null;
+}
+
+export async function getOrgBilling(): Promise<OrgBilling> {
+  const raw = await fetchApi("/auth/me");
+  return {
+    id: raw.id,
+    name: raw.name,
+    slug: raw.slug,
+    plan: raw.plan,
+    pagesUsed: raw.pages_used ?? raw.pagesUsed ?? 0,
+    pagesQuota: raw.pages_quota ?? raw.pagesQuota ?? 0,
+    stripeCustomerId: raw.stripe_customer_id ?? raw.stripeCustomerId ?? null,
+  };
+}
+
+export async function startCheckout(plan: "starter" | "pro"): Promise<string> {
+  const res = await fetchApi("/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
+  return res.url;
+}
+
+export async function getBillingPortalUrl(): Promise<string> {
+  const res = await fetchApi("/billing/portal", { method: "POST" });
+  return res.url;
+}

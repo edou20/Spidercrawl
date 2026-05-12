@@ -39,10 +39,63 @@ export async function incrementOrgPagesUsed(orgId: string, delta: number): Promi
   if (!orgId || !isDbEnabled() || delta <= 0) return;
   try {
     const db = getDb();
-    await db.query(`UPDATE organizations SET pages_used = pages_used + $2 WHERE id = $1`, [orgId, delta]);
+    const res = await db.query<{ pages_used: number; pages_quota: number; email: string | null; name: string }>(
+      `UPDATE organizations SET pages_used = pages_used + $2 WHERE id = $1
+       RETURNING pages_used, pages_quota, email, name`,
+      [orgId, delta]
+    );
+    const row = res.rows[0];
+    if (!row || !row.email) return;
+
+    const used = row.pages_used;
+    const quota = row.pages_quota;
+    const warningThreshold = Math.floor(quota * 0.8);
+
+    if (used === warningThreshold) {
+      void sendQuotaWarningEmail(row.email, row.name, used, quota, "80%");
+    } else if (used === quota) {
+      void sendQuotaWarningEmail(row.email, row.name, used, quota, "100%");
+    }
   } catch (err: any) {
     logger.warn({ err: err.message, orgId }, "incrementOrgPagesUsed failed");
   }
+}
+
+async function sendQuotaWarningEmail(
+  to: string,
+  orgName: string,
+  used: number,
+  quota: number,
+  pct: string
+): Promise<void> {
+  try {
+    const { sendTransactionalEmail } = await import("./email.js");
+    const appUrl = (process.env.APP_URL || "http://127.0.0.1:3200").replace(/\/+$/, "");
+    const subject = pct === "100%"
+      ? "Spidercrawl: Page quota reached — crawls are paused"
+      : `Spidercrawl: ${pct} of page quota used`;
+    const html = pct === "100%"
+      ? `<p>Hi ${orgName},</p>
+         <p>Your Spidercrawl organization has reached its page quota (<strong>${used.toLocaleString()} / ${quota.toLocaleString()} pages</strong>).</p>
+         <p>New crawl jobs will be rejected with a 402 error until your quota resets or you upgrade your plan.</p>
+         <p><a href="${appUrl}/app/settings">Upgrade your plan →</a></p>`
+      : `<p>Hi ${orgName},</p>
+         <p>You have used <strong>${used.toLocaleString()} of ${quota.toLocaleString()} pages</strong> (${pct}) in your current billing period.</p>
+         <p>Upgrade before you hit the limit to avoid interrupted crawls.</p>
+         <p><a href="${appUrl}/app/settings">Manage plan →</a></p>`;
+    await sendTransactionalEmail(to, subject, html);
+  } catch (err: any) {
+    logger.warn({ err: err.message, to }, "sendQuotaWarningEmail failed");
+  }
+}
+
+export async function resetOrgPagesUsed(orgId: string): Promise<void> {
+  if (!orgId || !isDbEnabled()) return;
+  const db = getDb();
+  await db.query(
+    `UPDATE organizations SET pages_used = 0, period_reset_at = NOW() WHERE id = $1`,
+    [orgId]
+  );
 }
 
 export interface OrgAuthRow {

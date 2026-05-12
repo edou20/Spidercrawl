@@ -153,6 +153,13 @@ export async function createServer() {
   }
 
   // ── Global error handler ─────────────────────────────────────
+  try {
+    const Sentry = await import("@sentry/node");
+    Sentry.setupFastifyErrorHandler(app);
+  } catch {
+    // Sentry not available or DSN not set — skip
+  }
+
   app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
     logger.error(error, "Unhandled error");
     reply.status(error.statusCode || 500).send({
