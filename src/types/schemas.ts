@@ -37,6 +37,9 @@ export const CrawlRequestSchema = z.object({
   extractionSchema: z.record(z.unknown()).optional(),
   extractionPrompt: z.string().optional(),
 
+  // Phase 2: Vision LLM — describe images found on crawled pages
+  enableVision: z.boolean().default(false),
+
   // Phase 1.4: Named Entity Resolution (LLM-intensive)
   enableEntities: z.boolean().default(false),
 

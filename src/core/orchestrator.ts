@@ -13,6 +13,7 @@ import { isDbEnabled } from "../lib/db.js";
 import { buildPageJsonLd, detectEntityType } from "../export/jsonld.js";
 import { listSchedules, updateScheduleLastRun, getSchedule } from "../lib/schedule-store.js";
 import { nanoid } from "nanoid";
+import { incrementPagesUsed } from "../lib/billing.js";
 import type { CrawlRequest, JobStatus, PageResult, Schedule } from "../types/schemas.js";
 import { readIntegerEnv } from "../lib/env-utils.js";
 
@@ -651,7 +652,7 @@ async function runCrawl(jobId: string, req: CrawlRequest): Promise<void> {
       let result = await scrapePage({
         url: item.url,
         formats: req.formats,
-        enableVision: false,
+        enableVision: req.enableVision ?? false,
         useBrowser: false,
         extractSchema: req.extractionSchema,
         extractPrompt: req.extractionPrompt,
@@ -679,6 +680,8 @@ async function runCrawl(jobId: string, req: CrawlRequest): Promise<void> {
       job.results.push(toSummary(result));
       job.completedPages++;
       job.totalPages = visited.size;
+      // Metering: increment org usage counter (fire-and-forget)
+      if ((job as any).orgId) incrementPagesUsed((job as any).orgId).catch(() => {});
       job.progress = Math.round((job.completedPages / Math.min(req.maxPages, visited.size + queue.length)) * 100);
       if (result.extractedData) job.extractedCount = (job.extractedCount ?? 0) + 1;
       job.updatedAt = new Date().toISOString();

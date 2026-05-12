@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { Settings, Key, Plus, Trash2, Copy, CheckCheck, Code2, Terminal, Globe, Zap, Eye, EyeOff, AlertTriangle, Bell, Share2, Bot, Wrench } from "lucide-react";
-import { listApiKeys, createApiKey, revokeApiKey, ApiKey, listWebhooks, createWebhook, deleteWebhook, WebhookRow, CreatedWebhookRow } from "../api";
+import { listApiKeys, createApiKey, revokeApiKey, ApiKey, listWebhooks, createWebhook, deleteWebhook, WebhookRow, CreatedWebhookRow, getBillingInfo, getBillingCheckoutUrl, BillingInfo } from "../api";
 import { resolveApiBaseUrl } from "../api-base";
 
 const API_BASE = resolveApiBaseUrl(
@@ -148,6 +148,13 @@ export default function SettingsPage() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEvent, setWebhookEvent] = useState("job.completed");
 
+  const [billing, setBilling] = useState<BillingInfo | null>(null);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+
+  useEffect(() => {
+    getBillingInfo().then(setBilling).catch(() => {});
+  }, []);
+
   const demoKey = newKey?.key ?? (keys[0] ? `sk-sc-${"•".repeat(36)}` : "YOUR_API_KEY");
   const snippet = CODE_SNIPPETS[lang](demoKey);
 
@@ -210,7 +217,7 @@ export default function SettingsPage() {
       setWebhookUrl("");
       await loadWebhooks();
     } catch (e: any) {
-      alert("Failed to create webhook: " + e.message);
+      setError("Failed to create webhook: " + e.message);
     } finally {
       setBusy(false);
     }
@@ -234,6 +241,74 @@ export default function SettingsPage() {
         <h1><Settings size={18} style={{ display: "inline", marginRight: 8, verticalAlign: "middle", color: "var(--text-tertiary)" }} />Settings</h1>
         <p>Manage API keys and integrate Spidercrawl with your AI agents and workflows.</p>
       </div>
+
+      {/* ── Usage & Plan card ── */}
+      {billing && (
+        <div className="card" style={{ padding: "20px 24px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".5px", color: "var(--text-tertiary)" }}>Plan</span>
+              <span style={{ marginLeft: 10, background: billing.plan === "free" ? "rgba(148,163,184,.12)" : "rgba(56,189,248,.12)", color: billing.plan === "free" ? "var(--text-secondary)" : "var(--brand)", fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 6, textTransform: "capitalize" }}>
+                {billing.plan}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {billing.plan === "free" && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={checkoutBusy}
+                  onClick={async () => {
+                    setCheckoutBusy(true);
+                    try { window.location.href = await getBillingCheckoutUrl("starter"); }
+                    catch { setCheckoutBusy(false); }
+                  }}
+                >
+                  Upgrade to Starter — $29/mo
+                </button>
+              )}
+              {billing.plan === "starter" && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={checkoutBusy}
+                  onClick={async () => {
+                    setCheckoutBusy(true);
+                    try { window.location.href = await getBillingCheckoutUrl("pro"); }
+                    catch { setCheckoutBusy(false); }
+                  }}
+                >
+                  Upgrade to Pro — $99/mo
+                </button>
+              )}
+              {billing.plan !== "free" && (
+                <a className="btn btn-ghost btn-sm" href="/billing/portal">Manage subscription</a>
+              )}
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
+            <span>Pages this month</span>
+            <span>{billing.pagesUsed.toLocaleString()} / {billing.pagesLimit.toLocaleString()}</span>
+          </div>
+          <div style={{ background: "var(--surface-raised, rgba(255,255,255,.05))", borderRadius: 6, height: 6, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", borderRadius: 6,
+              width: `${Math.min(billing.usagePercent, 100)}%`,
+              background: billing.usagePercent >= 90 ? "var(--red)" : billing.usagePercent >= 70 ? "#f59e0b" : "var(--brand)",
+              transition: "width .4s ease",
+            }} />
+          </div>
+          {billing.usagePercent >= 80 && (
+            <div style={{ marginTop: 10, fontSize: 12, color: billing.usagePercent >= 100 ? "var(--red)" : "#f59e0b", display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={11} />
+              {billing.usagePercent >= 100
+                ? "Monthly limit reached — crawls are paused. Upgrade to continue."
+                : `You've used ${billing.usagePercent}% of your monthly limit.`}
+            </div>
+          )}
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
+            Resets {new Date(billing.periodResetAt).toLocaleDateString("en-US", { month: "long", day: "numeric" })}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="msg-banner err">

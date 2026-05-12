@@ -8,7 +8,7 @@ import { onCrawlEvent } from "../lib/crawl-events.js";
 import { detectEntityType, buildPageJsonLd } from "../export/jsonld.js";
 import { buildKnowledgeGraphExport, knowledgeGraphToCytoscape, knowledgeGraphToGraphMl } from "../export/graph.js";
 import { createSearchSnippet, extractMatchedTerms, tokenizeSearchQuery } from "../export/search.js";
-import { searchEmbeddings } from "../export/rag.js";
+import { searchEmbeddings, searchEmbeddingsGlobal } from "../export/rag.js";
 import { buildKeywordHitFromRow, mergeAndRerankHybridHits, rerankHybridHit } from "./hybrid-search.js";
 import { mapSite } from "../core/mapper.js";
 import { extractStructured, extractStructuredDetailed } from "../ai/structured-extractor.js";
@@ -24,6 +24,7 @@ import type { WebhookEvent } from "../lib/webhooks.js";
 import { normalizeApiPayload } from "./serialize.js";
 import { resolveReplayLimit, toReplayPayload } from "./sse-utils.js";
 import { readIntegerEnv } from "../lib/env-utils.js";
+import { isOverQuota, PLAN_LIMITS } from "../lib/billing.js";
 
 function classifyAIError(err: unknown): { status: number; error: string } | null {
   const message = err instanceof Error ? err.message : String(err ?? "");
@@ -77,6 +78,21 @@ export async function registerRoutes(app: FastifyInstance) {
     const parsed = CrawlRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ success: false, error: "Validation failed", details: parsed.error.flatten() });
+    }
+
+    // Quota check — enforce plan page limits
+    if (request.orgId) {
+      try {
+        const quota = await isOverQuota(request.orgId);
+        if (quota.over) {
+          return reply.status(429).send({
+            success: false,
+            error: `Monthly page limit reached (${quota.used.toLocaleString()} / ${quota.limit.toLocaleString()} pages). Upgrade your plan at ${process.env.APP_URL ?? "https://spidercrawl.dev"}/app/settings`,
+            code: "QUOTA_EXCEEDED",
+            plan: quota.plan,
+          });
+        }
+      } catch {}
     }
 
     const MAX_CONCURRENT_CRAWLS = readIntegerEnv("MAX_CONCURRENT_CRAWLS", 10, { min: 1 });
@@ -493,7 +509,7 @@ export async function registerRoutes(app: FastifyInstance) {
   });
 
   // ─── POST /v1/search ───────────────────────────────────────
-  // Cross-job search optimized with SQL ILIKE
+  // Cross-job hybrid search: keyword ILIKE + optional pgvector, merged and reranked.
   app.post("/v1/search", async (request, reply) => {
     const { query, limit = 12 } = request.body as { query?: string; limit?: number };
     if (!query?.trim()) return reply.status(400).send({ success: false, error: "query required" });
@@ -503,17 +519,19 @@ export async function registerRoutes(app: FastifyInstance) {
       const db = getDb();
       const terms = tokenizeSearchQuery(query);
       const patterns = terms.length ? terms.map((term) => `%${term}%`) : [`%${query}%`];
-      const clauses = patterns.map((_, index) => {
-        const param = `$${index + 1}`;
-        return `(p.markdown ILIKE ${param} OR p.title ILIKE ${param} OR j.root_url ILIKE ${param})`;
+      const clauses = patterns.map((_, i) => {
+        const p = `$${i + 1}`;
+        return `(p.markdown ILIKE ${p} OR p.title ILIKE ${p} OR j.root_url ILIKE ${p})`;
       });
       const scoreSql = patterns
-        .map((_, index) => {
-          const param = `$${index + 1}`;
-          return `CASE WHEN p.markdown ILIKE ${param} OR p.title ILIKE ${param} OR j.root_url ILIKE ${param} THEN 1 ELSE 0 END`;
+        .map((_, i) => {
+          const p = `$${i + 1}`;
+          return `CASE WHEN p.markdown ILIKE ${p} OR p.title ILIKE ${p} OR j.root_url ILIKE ${p} THEN 1 ELSE 0 END`;
         })
         .join(" + ");
 
+      // Fetch more keyword hits than needed so we have room to merge with vector hits
+      const keywordLimit = limit * 3;
       const res = await db.query(
         `SELECT p.url, p.title, p.markdown,
                 (${scoreSql})::float as similarity,
@@ -525,40 +543,42 @@ export async function registerRoutes(app: FastifyInstance) {
            AND (j.org_id = $${patterns.length + 2} OR j.org_id IS NULL)
          ORDER BY similarity DESC, p.crawled_at DESC
          LIMIT $${patterns.length + 1}`,
-        [...patterns, limit, request.orgId]
+        [...patterns, keywordLimit, request.orgId]
       );
-      
-      const formatted = res.rows.map(row => ({
+
+      const keywordHits = res.rows.map((row) => ({
         url: row.url,
         title: row.title,
         content: createSearchSnippet(row.markdown ?? "", terms.length ? terms : [query.toLowerCase()]),
         similarity: Number(row.similarity) / Math.max(1, patterns.length),
-        searchType: "hybrid" as const,
+        searchType: "keyword" as const,
         matchedTerms: extractMatchedTerms(`${row.title ?? ""} ${row.markdown ?? ""} ${row.job_root_url ?? ""}`.toLowerCase(), terms),
         provenance: {
           depth: row.depth ?? undefined,
           statusCode: row.status_code ?? undefined,
           crawledAt: row.crawled_at ? new Date(row.crawled_at).toISOString() : undefined,
         },
-        scoreBreakdown: {
-          keyword: Number(row.similarity) / Math.max(1, patterns.length),
-        },
-        job: { id: row.job_id, rootUrl: row.job_root_url, goal: row.job_goal ?? undefined }
+        scoreBreakdown: { keyword: Number(row.similarity) / Math.max(1, patterns.length) },
+        job: { id: row.job_id, rootUrl: row.job_root_url, goal: row.job_goal ?? undefined },
       }));
 
-      const reranked = formatted
-        .map((hit) => {
-          const rerank = rerankHybridHit(hit, terms);
-          return {
-            ...hit,
-            similarity: rerank,
-            scoreBreakdown: { ...(hit.scoreBreakdown ?? {}), rerank },
-          };
-        })
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, limit);
+      // Attempt vector search if OpenAI key is configured
+      let vectorHits: Array<{ url: string; title?: string; content: string; similarity: number }> = [];
+      let hasVectorResults = false;
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          const vHits = await searchEmbeddingsGlobal(query, limit * 2, request.orgId);
+          vectorHits = vHits.map((h) => ({ url: h.url, title: h.title, content: h.content, similarity: h.similarity }));
+          hasVectorResults = vectorHits.length > 0;
+        } catch (vecErr: any) {
+          logger.warn({ err: vecErr.message }, "Cross-job vector search failed, falling back to keyword only");
+        }
+      }
 
-      return reply.status(200).send({ success: true, data: reranked });
+      const merged = mergeAndRerankHybridHits(keywordHits, vectorHits, query, limit)
+        .map((hit) => ({ ...hit, searchType: hasVectorResults ? hit.searchType : "keyword" as const }));
+
+      return reply.status(200).send({ success: true, data: merged });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }

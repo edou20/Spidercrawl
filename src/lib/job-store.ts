@@ -184,7 +184,31 @@ export async function getPageDetail(jobId: string, url: string): Promise<any | n
     `SELECT * FROM pages WHERE job_id=$1 AND url=$2 LIMIT 1`,
     [jobId, url]
   );
-  return res.rows[0] ?? null;
+  const row = res.rows[0];
+  if (!row) return null;
+
+  const jsonData = row.json_data
+    ? (typeof row.json_data === "object" ? row.json_data : JSON.parse(row.json_data))
+    : undefined;
+
+  return {
+    id: row.id,
+    url: row.url,
+    title: row.title,
+    statusCode: row.status_code,
+    depth: row.depth,
+    markdown: row.markdown,
+    html: row.html,
+    jsonData,
+    tables: jsonData?.tables ?? undefined,
+    extractedData: row.extracted_data ?? undefined,
+    imageDescriptions: row.image_descriptions ?? undefined,
+    links: Array.isArray(row.links) ? row.links : (row.links ? JSON.parse(row.links) : []),
+    metadata: row.metadata,
+    crawledAt: row.crawled_at,
+    contentHash: row.content_hash,
+    entityType: row.entity_type,
+  };
 }
 
 export async function getPageLinks(jobId: string): Promise<{ from: string; to: string }[]> {

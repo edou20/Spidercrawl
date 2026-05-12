@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   Globe, CheckCircle, TrendingUp, Plus, ArrowRight, Clock,
   RefreshCw, Trash2, Download, Search, RotateCcw, AlertTriangle, Activity,
@@ -361,6 +361,7 @@ function KnowledgeOpsOverview({
 /* ─── Component ────────────────────────────────────────────────── */
 export default function DashboardPage({ mode = "overview" }: { mode?: DashboardMode }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [jobs,         setJobs]         = useState<JobRow[]>([]);
   const [stats,        setStats]        = useState<Stats | null>(null);
   const [err,          setErr]          = useState<string | null>(null);
@@ -368,6 +369,13 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery,  setSearchQuery]  = useState("");
   const [statusFilter, setStatusFilter] = useState<"all"|"queued"|"processing"|"completed"|"failed">("all");
+
+  useEffect(() => {
+    const s = (location.state as any)?.statusFilter;
+    if (s && ["all","queued","processing","completed","failed"].includes(s)) {
+      setStatusFilter(s);
+    }
+  }, [location]);
   const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set());
   const [bulkBusy,     setBulkBusy]     = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
@@ -628,7 +636,7 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
           <button
             className="btn btn-ghost btn-sm"
             style={{ marginLeft: "auto", color: "var(--red)", borderColor: "rgba(239,68,68,0.25)" }}
-            onClick={() => setStatusFilter("failed")}
+            onClick={() => isCrawlsMode ? setStatusFilter("failed") : navigate("/crawls", { state: { statusFilter: "failed" } })}
           >
             Show failed
           </button>

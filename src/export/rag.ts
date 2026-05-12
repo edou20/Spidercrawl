@@ -197,3 +197,38 @@ export async function searchEmbeddings(
 
   return res.rows;
 }
+
+/**
+ * Cross-job vector search — searches all jobs (scoped to org when provided).
+ */
+export async function searchEmbeddingsGlobal(
+  query: string,
+  limit = 10,
+  orgId?: string
+): Promise<Array<{ content: string; url: string; title: string; similarity: number; chunkIndex: number; jobId: string; jobRootUrl: string; jobGoal?: string }>> {
+  if (!isDbEnabled()) throw new Error("DATABASE_URL is not configured");
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY required");
+
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const [vec] = await embedBatch(client, [query]);
+  const db = getDb();
+
+  const res = await db.query(
+    `SELECT e.content,
+            e.chunk_index AS "chunkIndex",
+            (e.metadata->>'url') AS url,
+            (e.metadata->>'title') AS title,
+            1 - (e.embedding <=> $1::vector) AS similarity,
+            j.id AS "jobId",
+            j.root_url AS "jobRootUrl",
+            j.goal AS "jobGoal"
+     FROM embeddings e
+     JOIN jobs j ON j.id = e.job_id
+     WHERE ($2::uuid IS NULL OR j.org_id = $2::uuid OR j.org_id IS NULL)
+     ORDER BY e.embedding <=> $1::vector
+     LIMIT $3`,
+    [toVectorLiteral(vec), orgId ?? null, limit]
+  );
+
+  return res.rows;
+}

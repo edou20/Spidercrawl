@@ -49,7 +49,7 @@ export interface PageRow {
   // Full detail fields (only populated by getPageDetail)
   extractedData?: any;
   tables?: Array<{ headers: string[]; rows: string[][] }>;
-  imageDescriptions?: string[];
+  imageDescriptions?: Array<{ src: string; alt: string; description: string; type: string; confidence: number }>;
   links?: string[];
 }
 
@@ -473,6 +473,28 @@ export async function askJob(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, limit }),
   });
+}
+
+export interface BillingInfo {
+  orgId: string;
+  plan: string;
+  pagesUsed: number;
+  pagesLimit: number;
+  usagePercent: number;
+  periodResetAt: string;
+}
+
+export async function getBillingInfo(): Promise<BillingInfo> {
+  return fetchApi("/auth/me");
+}
+
+export async function getBillingCheckoutUrl(plan: "starter" | "pro"): Promise<string> {
+  const data = await fetchApi<{ url: string }>("/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
+  return data.url;
 }
 
 export async function rerunJobExtraction(

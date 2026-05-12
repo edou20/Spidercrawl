@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spidercrawl — AI Web Crawling API</title>
+  <meta name="description" content="Crawl any website, extract structured data, build knowledge graphs. $29/mo for 50k pages — or self-host free." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #38bdf8;
+      --brand-dim: #0ea5e9;
+      --bg: #0a0f1a;
+      --surface: #111827;
+      --border: #1e293b;
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --red: #f87171;
+      --green: #34d399;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    a { color: var(--brand); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Nav ── */
+    nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 32px; border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--bg); z-index: 10;
+    }
+    .logo { font-weight: 700; font-size: 18px; display: flex; align-items: center; gap: 8px; color: var(--text); }
+    .logo-dot { width: 10px; height: 10px; background: var(--brand); border-radius: 50%; display: inline-block; }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
+    .nav-links a { color: var(--text-dim); font-size: 14px; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: opacity .15s; }
+    .btn:hover { opacity: .85; text-decoration: none; }
+    .btn-primary { background: var(--brand); color: #000; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+    /* ── Hero ── */
+    .hero { text-align: center; padding: 96px 24px 64px; max-width: 760px; margin: 0 auto; }
+    .hero-badge { display: inline-block; background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.25); color: var(--brand); font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 100px; margin-bottom: 24px; letter-spacing: .5px; text-transform: uppercase; }
+    .hero h1 { font-size: clamp(36px, 6vw, 64px); font-weight: 800; line-height: 1.1; letter-spacing: -1.5px; margin-bottom: 20px; }
+    .hero h1 span { color: var(--brand); }
+    .hero p { font-size: 18px; color: var(--text-dim); max-width: 540px; margin: 0 auto 36px; }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+    /* ── Demo curl ── */
+    .demo { max-width: 680px; margin: 48px auto; }
+    .demo-tabs { display: flex; gap: 4px; margin-bottom: -1px; }
+    .demo-tab { padding: 6px 14px; font-size: 12px; font-weight: 600; color: var(--text-dim); border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; cursor: pointer; background: transparent; }
+    .demo-tab.active { color: var(--text); background: var(--surface); }
+    pre.code {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 0 8px 8px 8px;
+      padding: 20px 24px; font-family: "SF Mono", "Fira Code", monospace; font-size: 13px;
+      line-height: 1.7; overflow-x: auto; text-align: left; color: #cbd5e1;
+    }
+    .c-cmd { color: var(--brand); }
+    .c-str { color: #86efac; }
+    .c-key { color: #f9a8d4; }
+    .c-val { color: #fcd34d; }
+    .c-dim { color: #475569; }
+
+    /* ── Stats ── */
+    .stats { display: flex; justify-content: center; gap: 48px; padding: 48px 24px; flex-wrap: wrap; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .stat-item { text-align: center; }
+    .stat-num { font-size: 32px; font-weight: 800; color: var(--brand); }
+    .stat-label { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+
+    /* ── Features ── */
+    .features { max-width: 1000px; margin: 80px auto; padding: 0 24px; }
+    .section-title { text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 48px; }
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    .feature-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+    .feature-icon { font-size: 24px; margin-bottom: 12px; }
+    .feature-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+
+    /* ── Pricing ── */
+    .pricing { max-width: 900px; margin: 80px auto; padding: 0 24px; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+    .plan-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px; position: relative; }
+    .plan-card.featured { border-color: var(--brand); }
+    .plan-badge { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--brand); color: #000; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 100px; text-transform: uppercase; letter-spacing: .5px; }
+    .plan-name { font-size: 14px; font-weight: 600; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px; }
+    .plan-price { font-size: 40px; font-weight: 800; margin-bottom: 4px; }
+    .plan-price span { font-size: 16px; font-weight: 400; color: var(--text-dim); }
+    .plan-pages { font-size: 13px; color: var(--text-dim); margin-bottom: 20px; }
+    .plan-features { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+    .plan-features li { font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .plan-features li::before { content: "✓"; color: var(--green); font-weight: 700; }
+    .plan-features li.dim { color: var(--text-dim); }
+    .plan-features li.dim::before { content: "—"; color: var(--border); }
+
+    /* ── Sign up form ── */
+    .signup { max-width: 480px; margin: 80px auto; padding: 0 24px; text-align: center; }
+    .signup h2 { font-size: 28px; font-weight: 700; margin-bottom: 12px; }
+    .signup p { color: var(--text-dim); margin-bottom: 32px; }
+    .signup-form { display: flex; flex-direction: column; gap: 12px; }
+    .signup-form input {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 16px; font-size: 15px; color: var(--text); outline: none; width: 100%;
+    }
+    .signup-form input:focus { border-color: var(--brand); }
+    .signup-form input::placeholder { color: var(--text-dim); }
+    .signup-form .btn { width: 100%; justify-content: center; padding: 13px; font-size: 15px; }
+    .result-box { margin-top: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: left; display: none; }
+    .result-box.show { display: block; }
+    .result-label { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+    .result-key { font-family: monospace; font-size: 14px; color: var(--brand); word-break: break-all; }
+    .result-note { font-size: 12px; color: var(--text-dim); margin-top: 10px; }
+    .result-error { color: var(--red); font-size: 14px; }
+
+    /* ── Footer ── */
+    footer { text-align: center; padding: 48px 24px; color: var(--text-dim); font-size: 13px; border-top: 1px solid var(--border); margin-top: 80px; }
+
+    @media (max-width: 600px) {
+      nav { padding: 14px 20px; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav>
+  <div class="logo"><span class="logo-dot"></span> Spidercrawl</div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#pricing">Pricing</a>
+    <a href="/app" target="_blank">Dashboard</a>
+    <a href="https://github.com/your-repo/spidercrawl" target="_blank">GitHub</a>
+  </div>
+  <a href="#signup" class="btn btn-primary">Get API key →</a>
+</nav>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="hero-badge">Open Source · Self-hostable</div>
+  <h1>AI web crawling<br><span>as an API</span></h1>
+  <p>Crawl any site, extract structured data, build knowledge graphs. Fully open source — self-host free or use our cloud for $29/mo.</p>
+  <div class="hero-actions">
+    <a href="#signup" class="btn btn-primary">Get free API key</a>
+    <a href="https://github.com/your-repo/spidercrawl" class="btn btn-ghost" target="_blank">View on GitHub</a>
+  </div>
+</section>
+
+<!-- ── Code demo ── -->
+<div class="demo">
+  <div class="demo-tabs">
+    <button class="demo-tab active" onclick="showTab('curl')">curl</button>
+    <button class="demo-tab" onclick="showTab('js')">Node.js</button>
+    <button class="demo-tab" onclick="showTab('python')">Python</button>
+  </div>
+  <pre class="code" id="tab-curl"><span class="c-cmd">curl</span> -X POST https://api.spidercrawl.dev/v1/crawl \
+  -H <span class="c-str">"Authorization: Bearer sk-sc-..."</span> \
+  -H <span class="c-str">"Content-Type: application/json"</span> \
+  -d <span class="c-str">'{
+    "url": "https://docs.example.com",
+    "maxPages": 50,
+    "goal": "Extract all API endpoints and their parameters",
+    "extractionSchema": {
+      "endpoint": "string",
+      "method": "string",
+      "description": "string"
+    }
+  }'</span>
+
+<span class="c-dim"># Response</span>
+{ <span class="c-key">"id"</span>: <span class="c-val">"job_abc123"</span>, <span class="c-key">"status"</span>: <span class="c-val">"processing"</span> }</pre>
+  <pre class="code" id="tab-js" style="display:none">import { Spidercrawl } <span class="c-cmd">from</span> <span class="c-str">"spidercrawl"</span>;
+
+<span class="c-cmd">const</span> client = <span class="c-cmd">new</span> Spidercrawl({ apiKey: <span class="c-str">"sk-sc-..."</span> });
+
+<span class="c-cmd">const</span> job = <span class="c-cmd">await</span> client.crawl({
+  url: <span class="c-str">"https://docs.example.com"</span>,
+  maxPages: 50,
+  goal: <span class="c-str">"Extract all API endpoints"</span>,
+  extractionSchema: {
+    endpoint: <span class="c-str">"string"</span>,
+    method: <span class="c-str">"string"</span>,
+    description: <span class="c-str">"string"</span>,
+  },
+});
+
+console.log(job.id); <span class="c-dim">// job_abc123</span></pre>
+  <pre class="code" id="tab-python" style="display:none"><span class="c-cmd">from</span> spidercrawl <span class="c-cmd">import</span> Spidercrawl
+
+client = Spidercrawl(api_key=<span class="c-str">"sk-sc-..."</span>)
+
+job = client.crawl(
+    url=<span class="c-str">"https://docs.example.com"</span>,
+    max_pages=50,
+    goal=<span class="c-str">"Extract all API endpoints"</span>,
+    extraction_schema={
+        <span class="c-str">"endpoint"</span>: <span class="c-str">"string"</span>,
+        <span class="c-str">"method"</span>: <span class="c-str">"string"</span>,
+        <span class="c-str">"description"</span>: <span class="c-str">"string"</span>,
+    },
+)
+
+print(job.id)  <span class="c-dim"># job_abc123</span></pre>
+</div>
+
+<!-- ── Stats ── -->
+<div class="stats">
+  <div class="stat-item"><div class="stat-num">30+</div><div class="stat-label">API endpoints</div></div>
+  <div class="stat-item"><div class="stat-num">8</div><div class="stat-label">Export formats</div></div>
+  <div class="stat-item"><div class="stat-num">3</div><div class="stat-label">AI providers</div></div>
+  <div class="stat-item"><div class="stat-num">MIT</div><div class="stat-label">License</div></div>
+</div>
+
+<!-- ── Features ── -->
+<section class="features" id="features">
+  <h2 class="section-title">Everything you need to turn the web into data</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🕷️</div>
+      <h3>Goal-oriented crawling</h3>
+      <p>Set a natural language goal. The crawler scores links by relevance and stops when it's satisfied — no wasted pages.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <h3>Structured extraction</h3>
+      <p>Pass a JSON schema or a plain prompt. Get clean structured data back from every page, powered by GPT or Gemini.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔍</div>
+      <h3>Hybrid search</h3>
+      <p>Search across all your crawled content with keyword + vector (pgvector) ranking. Works with any RAG pipeline.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🌐</div>
+      <h3>Knowledge graphs</h3>
+      <p>Extract named entities, resolve duplicates, and export as GraphML, Cytoscape, or JSON-LD for downstream analysis.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📦</div>
+      <h3>8 export formats</h3>
+      <p>JSON, CSV, JSONL, JSON-LD, GraphML, RAG chunks, fine-tuning JSONL. One crawl, every format.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔁</div>
+      <h3>Scheduled crawls</h3>
+      <p>Set a cron schedule, get webhooks on completion. Change detection included — only re-process updated pages.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Pricing ── -->
+<section class="pricing" id="pricing">
+  <h2 class="section-title">Simple, transparent pricing</h2>
+  <div class="pricing-grid">
+    <div class="plan-card">
+      <div class="plan-name">Free</div>
+      <div class="plan-price">$0<span>/mo</span></div>
+      <div class="plan-pages">1,000 pages / month</div>
+      <ul class="plan-features">
+        <li>Full API access</li>
+        <li>All 8 export formats</li>
+        <li>Dashboard included</li>
+        <li class="dim">AI extraction</li>
+        <li class="dim">RAG search</li>
+        <li class="dim">Vision / images</li>
+      </ul>
+      <a href="#signup" class="btn btn-ghost" style="width:100%;justify-content:center;">Get started free</a>
+    </div>
+    <div class="plan-card featured">
+      <div class="plan-badge">Most popular</div>
+      <div class="plan-name">Starter</div>
+      <div class="plan-price">$29<span>/mo</span></div>
+      <div class="plan-pages">50,000 pages / month</div>
+      <ul class="plan-features">
+        <li>Everything in Free</li>
+        <li>AI structured extraction</li>
+        <li>RAG search & Q&amp;A</li>
+        <li>Webhooks &amp; schedules</li>
+        <li class="dim">Vision / image AI</li>
+        <li class="dim">Entity resolution</li>
+      </ul>
+      <a href="#signup" class="btn btn-primary" style="width:100%;justify-content:center;">Start for $29/mo</a>
+    </div>
+    <div class="plan-card">
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">$99<span>/mo</span></div>
+      <div class="plan-pages">500,000 pages / month</div>
+      <ul class="plan-features">
+        <li>Everything in Starter</li>
+        <li>Vision AI (image descriptions)</li>
+        <li>Entity resolution</li>
+        <li>Knowledge graph export</li>
+        <li>Priority support</li>
+        <li>SLA guarantee</li>
+      </ul>
+      <a href="#signup" class="btn btn-ghost" style="width:100%;justify-content:center;">Start for $99/mo</a>
+    </div>
+  </div>
+  <p style="text-align:center;margin-top:24px;font-size:13px;color:var(--text-dim)">
+    Want to self-host? <a href="https://github.com/your-repo/spidercrawl">Deploy with Docker Compose →</a> — free forever.
+  </p>
+</section>
+
+<!-- ── Sign-up ── -->
+<section class="signup" id="signup">
+  <h2>Get your free API key</h2>
+  <p>No credit card. Start crawling in 60 seconds.</p>
+  <form class="signup-form" onsubmit="handleRegister(event)">
+    <input type="text" id="reg-name" placeholder="Project name (optional)" autocomplete="off" />
+    <input type="email" id="reg-email" placeholder="you@example.com" required autocomplete="email" />
+    <button type="submit" class="btn btn-primary" id="reg-btn">Get free API key →</button>
+  </form>
+  <div class="result-box" id="result-box">
+    <div id="result-content"></div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <p>Spidercrawl — Open source AI web crawling. <a href="https://github.com/your-repo/spidercrawl">GitHub</a> · <a href="/app">Dashboard</a></p>
+  <p style="margin-top:8px">MIT License · Made with ☕</p>
+</footer>
+
+<script>
+  // Tab switching
+  function showTab(name) {
+    ["curl","js","python"].forEach(t => {
+      document.getElementById("tab-" + t).style.display = t === name ? "block" : "none";
+    });
+    document.querySelectorAll(".demo-tab").forEach((b, i) => {
+      b.classList.toggle("active", ["curl","js","python"][i] === name);
+    });
+  }
+
+  // Registration
+  async function handleRegister(e) {
+    e.preventDefault();
+    const email = document.getElementById("reg-email").value.trim();
+    const name  = document.getElementById("reg-name").value.trim();
+    const btn   = document.getElementById("reg-btn");
+    const box   = document.getElementById("result-box");
+    const content = document.getElementById("result-content");
+
+    btn.textContent = "Creating account…";
+    btn.disabled = true;
+    box.classList.remove("show");
+
+    try {
+      const res = await fetch("/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, name }),
+      });
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        content.innerHTML = `<div class="result-error">${json.error ?? "Registration failed. Please try again."}</div>`;
+      } else {
+        content.innerHTML = `
+          <div class="result-label">Your API key — save it now, it won't be shown again</div>
+          <div class="result-key">${json.data.apiKey}</div>
+          <div class="result-note">
+            ${json.data.message}<br><br>
+            Free plan: ${(json.data.pagesLimit).toLocaleString()} pages/month.
+            <a href="/app">Open dashboard →</a>
+          </div>`;
+      }
+      box.classList.add("show");
+    } catch {
+      content.innerHTML = `<div class="result-error">Network error. Please try again.</div>`;
+      box.classList.add("show");
+    } finally {
+      btn.textContent = "Get free API key →";
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

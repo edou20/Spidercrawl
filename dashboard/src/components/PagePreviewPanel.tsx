@@ -159,8 +159,19 @@ export default function PagePreviewPanel({ page, loading, onSelectUrl }: Props) 
                   <div className="preview-image-index">
                     <Image size={11} />
                     Image {i + 1}
+                    <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.6, textTransform: "uppercase" }}>
+                      {desc.type}
+                    </span>
                   </div>
-                  <p className="text-sm text-secondary">{desc}</p>
+                  {desc.src && !desc.src.startsWith("[canvas") && (
+                    <img
+                      src={desc.src}
+                      alt={desc.alt || ""}
+                      style={{ maxWidth: "100%", maxHeight: 180, borderRadius: 6, marginBottom: 8, objectFit: "contain" }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
+                  <p className="text-sm text-secondary">{desc.description}</p>
                 </div>
               ))}
             </div>
