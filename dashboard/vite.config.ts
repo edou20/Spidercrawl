@@ -3,6 +3,14 @@ import react from "@vitejs/plugin-react";
 
 const backendUrl = process.env.VITE_BACKEND_URL || "http://127.0.0.1:3200";
 const devHost = process.env.VITE_HOST || "0.0.0.0";
+const rawRouterBasename = process.env.VITE_ROUTER_BASENAME?.trim();
+const normalizedRouterBasename = rawRouterBasename
+  ? rawRouterBasename === "/"
+    ? "/"
+    : `/${rawRouterBasename.replace(/^\/+|\/+$/g, "")}/`
+  : process.env.VITE_BACKEND_URL
+    ? "/"
+    : "/app/";
 
 export default defineConfig({
   plugins: [
@@ -22,7 +30,7 @@ export default defineConfig({
       },
     },
   ],
-  base: "/app/",
+  base: normalizedRouterBasename,
   build: { outDir: "dist", emptyOutDir: true },
   server: {
     host: devHost,
