@@ -121,7 +121,9 @@ Context: The image alt text is "${img.alt}".`,
       });
 
       try {
-        const parsed = JSON.parse(visionResult.text);
+        // Strip markdown code fences if the model wrapped the JSON
+        const raw = visionResult.text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+        const parsed = JSON.parse(raw);
         results.push({
           src: img.src,
           alt: img.alt,

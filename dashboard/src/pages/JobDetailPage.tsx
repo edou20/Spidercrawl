@@ -1057,58 +1057,107 @@ export default function JobDetailPage() {
       {/* ── Errors tab ── */}
       {tab === "errors" && (
         <div className="stack-md">
-          {errorPages.length === 0 ? (
+          {errorPages.length === 0 && failedPageEvents.length === 0 ? (
             <div className="card">
               <div className="empty-state" style={{ padding: "40px 0" }}>
                 <CheckCircle2 style={{ width: 36, height: 36, color: "var(--green)" }} />
-                <h3 style={{ marginTop: 12 }}>No HTTP errors</h3>
-                <p>All crawled pages returned successful status codes.</p>
+                <h3 style={{ marginTop: 12 }}>No errors</h3>
+                <p>All crawled pages returned successful status codes with no worker failures.</p>
               </div>
             </div>
           ) : (
-            Array.from(errorsByCode.entries())
-              .sort(([a], [b]) => b - a)
-              .map(([code, codePages]) => (
-                <div key={code} className="card">
+            <>
+              {Array.from(errorsByCode.entries())
+                .sort(([a], [b]) => b - a)
+                .map(([code, codePages]) => (
+                  <div key={code} className="card">
+                    <div className="card-header">
+                      <span className="card-title">
+                        <ShieldAlert size={13} style={{ color: "var(--red)" }} />
+                        HTTP {code}
+                        <span className="tab-count tab-count--err" style={{ marginLeft: 6 }}>{codePages.length}</span>
+                      </span>
+                      <span className="text-xs text-tertiary">{httpCodeLabel(code)}</span>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>URL</th>
+                            <th>Depth</th>
+                            <th>Crawled</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {codePages.map((p) => (
+                            <tr key={p.id} className="clickable-row" onClick={() => openPreview(p.url)}>
+                              <td>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{hostname(p.url)}</div>
+                                <div className="text-xs text-tertiary truncate font-mono" style={{ maxWidth: 380 }}>{pathname(p.url)}</div>
+                              </td>
+                              <td><span className="font-mono text-xs text-tertiary">{p.depth ?? "—"}</span></td>
+                              <td><span className="text-xs text-tertiary">{timeAgo(p.crawledAt)}</span></td>
+                              <td>
+                                <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm btn-icon" onClick={(e) => e.stopPropagation()}>
+                                  <ExternalLink size={12} />
+                                </a>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+
+              {failedPageEvents.length > 0 && (
+                <div className="card">
                   <div className="card-header">
                     <span className="card-title">
-                      <ShieldAlert size={13} style={{ color: "var(--red)" }} />
-                      HTTP {code}
-                      <span className="tab-count tab-count--err" style={{ marginLeft: 6 }}>{codePages.length}</span>
+                      <AlertTriangle size={13} style={{ color: "var(--amber, #f59e0b)" }} />
+                      Worker failures
+                      <span className="tab-count tab-count--err" style={{ marginLeft: 6 }}>{failedPageEvents.length}</span>
                     </span>
-                    <span className="text-xs text-tertiary">{httpCodeLabel(code)}</span>
+                    <span className="text-xs text-tertiary">Pages that failed to fetch or process</span>
                   </div>
                   <div className="table-wrap">
                     <table>
                       <thead>
                         <tr>
                           <th>URL</th>
-                          <th>Depth</th>
-                          <th>Crawled</th>
-                          <th></th>
+                          <th>Error</th>
+                          <th>Time</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {codePages.map((p) => (
-                          <tr key={p.id} className="clickable-row" onClick={() => openPreview(p.url)}>
-                            <td>
-                              <div style={{ fontWeight: 600, fontSize: 13 }}>{hostname(p.url)}</div>
-                              <div className="text-xs text-tertiary truncate font-mono" style={{ maxWidth: 380 }}>{pathname(p.url)}</div>
-                            </td>
-                            <td><span className="font-mono text-xs text-tertiary">{p.depth ?? "—"}</span></td>
-                            <td><span className="text-xs text-tertiary">{timeAgo(p.crawledAt)}</span></td>
-                            <td>
-                              <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm btn-icon" onClick={(e) => e.stopPropagation()}>
-                                <ExternalLink size={12} />
-                              </a>
-                            </td>
-                          </tr>
-                        ))}
+                        {failedPageEvents.map((evt, i) => {
+                          const errMsg = typeof evt.data?.error === "string" ? evt.data.error : "Unknown error";
+                          return (
+                            <tr key={i}>
+                              <td>
+                                <div className="text-xs font-mono text-secondary truncate" style={{ maxWidth: 260 }}>
+                                  {evt.url ? hostname(evt.url) : "—"}
+                                </div>
+                                {evt.url && (
+                                  <div className="text-xs text-tertiary font-mono truncate" style={{ maxWidth: 260 }}>{pathname(evt.url)}</div>
+                                )}
+                              </td>
+                              <td>
+                                <span className="text-xs text-secondary" style={{ color: "var(--red)", maxWidth: 340, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {errMsg}
+                                </span>
+                              </td>
+                              <td><span className="text-xs text-tertiary">{timeAgo(evt.ts)}</span></td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
                 </div>
-              ))
+              )}
+            </>
           )}
         </div>
       )}

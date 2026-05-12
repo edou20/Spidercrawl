@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { insertCrawlEvent } from "./job-store.js";
 
 export type CrawlEventType =
   | "job.started"
@@ -24,6 +25,8 @@ emitter.setMaxListeners(500); // One listener per active SSE subscriber per job
 
 export function emitCrawlEvent(event: CrawlStreamEvent): void {
   emitter.emit(`job:${event.jobId}`, event);
+  // Persist asynchronously — never block the hot crawl path
+  insertCrawlEvent(event.jobId, event.type, event.url ?? null, event.data).catch(() => {});
 }
 
 /**

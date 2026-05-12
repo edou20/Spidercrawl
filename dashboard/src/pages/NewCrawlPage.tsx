@@ -131,6 +131,7 @@ export default function NewCrawlPage() {
   const [extractionMode,   setExtractionMode]   = useState<ExtractionMode>(PRESETS[0].extractionMode);
   const [extractionPrompt, setExtractionPrompt] = useState(PRESETS[0].extractionPrompt);
   const [schemaFields,     setSchemaFields]     = useState<SchemaField[]>(PRESETS[0].extractionSchema ?? []);
+  const [enableVision,     setEnableVision]     = useState(false);
   const [enableEntities,   setEnableEntities]   = useState(false);
 
   const [testBusy,   setTestBusy]   = useState(false);
@@ -266,6 +267,7 @@ export default function NewCrawlPage() {
             adaptiveBudget, satisfactionThreshold,
             extractionPrompt: extractionPromptVal,
             extractionSchema,
+            enableVision,
             enableEntities,
           },
         });
@@ -277,6 +279,7 @@ export default function NewCrawlPage() {
           adaptiveBudget, satisfactionThreshold,
           ...(extractionPromptVal ? { extractionPrompt: extractionPromptVal } : {}),
           ...(extractionSchema   ? { extractionSchema }                       : {}),
+          enableVision,
           enableEntities,
         });
         nav(`/jobs/${id}`);
@@ -664,17 +667,37 @@ export default function NewCrawlPage() {
               <label className="flex items-center gap-2" style={{ cursor: "pointer" }}>
                 <input
                   type="checkbox"
+                  checked={enableVision}
+                  onChange={e => setEnableVision(e.target.checked)}
+                />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Enable Vision (Image Descriptions)
+                </span>
+              </label>
+              <p style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4, marginLeft: 20 }}>
+                Uses AI vision to describe images found on each crawled page. Populates the Images tab in page preview.
+              </p>
+            </div>
+
+            <div className="input-wrap" style={{ marginTop: 8 }}>
+              <label className="flex items-center gap-2" style={{ cursor: "pointer" }}>
+                <input
+                  type="checkbox"
                   checked={enableEntities}
                   onChange={e => setEnableEntities(e.target.checked)}
                 />
-                <span className="text-sm font-semibold text-white">
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                   Enable Entity Resolution
                 </span>
-                <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                <span style={{
+                  fontSize: 10, background: "rgba(99,102,241,0.18)", color: "#a5b4fc",
+                  padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(99,102,241,0.30)",
+                  fontWeight: 700, letterSpacing: "0.04em",
+                }}>
                   LLM INTENSIVE
                 </span>
               </label>
-              <p className="text-[10px] text-slate-500 mt-1 ml-5">
+              <p style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4, marginLeft: 20 }}>
                 Automatically identifies and merges people, companies, and products found in text.
               </p>
             </div>

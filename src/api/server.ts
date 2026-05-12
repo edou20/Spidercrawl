@@ -2,7 +2,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
+import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes.js";
+import { registerAuthRoutes } from "./auth-routes.js";
+import { registerBillingRoutes } from "./billing-routes.js";
 import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import path from "node:path";
@@ -19,11 +22,19 @@ export async function createServer() {
     requestTimeout: readIntegerEnv("REQUEST_TIMEOUT_MS", 120_000, { min: 1 }),
   });
 
-  // ── Request tracking ──────────────────────────────────────
+  // ── Request IDs ───────────────────────────────────────────
+  // Accept inbound X-Request-ID (from load balancer / client) or generate one.
+  // Echo it back in the response so clients can correlate logs.
   app.addHook("onRequest", async (request) => {
-    const reqId = request.headers["x-request-id"] as string || crypto.randomUUID();
+    const reqId = (request.headers["x-request-id"] as string) || crypto.randomUUID();
     request.id = reqId;
     request.headers["x-request-id"] = reqId;
+    // Child logger binds requestId to every log line emitted during this request
+    (request as any).log = logger.child({ requestId: reqId });
+  });
+
+  app.addHook("onSend", async (request, reply) => {
+    reply.header("X-Request-ID", request.id as string);
   });
 
   // ── Plugins ──────────────────────────────────────────────────
@@ -111,6 +122,8 @@ export async function createServer() {
   }));
 
   // ── API Routes ───────────────────────────────────────────────
+  await registerAuthRoutes(app);
+  await registerBillingRoutes(app);
   await registerRoutes(app);
 
   // ── Dashboard (static SPA at /app) ────────────────────────────
@@ -133,9 +146,12 @@ export async function createServer() {
   }
 
   // ── Global error handler ─────────────────────────────────────
-  app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
-    logger.error(error, "Unhandled error");
-    reply.status(error.statusCode || 500).send({
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
+    const requestId = request.id as string | undefined;
+    logger.error({ err: error, requestId }, "Unhandled request error");
+    const status = error.statusCode || 500;
+    if (status >= 500) Sentry.captureException(error, { extra: { requestId, url: request.url } });
+    reply.status(status).send({
       success: false,
       error: error.message || "Internal Server Error",
     });

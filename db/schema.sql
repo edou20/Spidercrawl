@@ -3,10 +3,16 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ── Multi-tenancy (Phase 4.1) ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS organizations (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          TEXT NOT NULL,
-  slug          TEXT NOT NULL UNIQUE,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name                   TEXT NOT NULL,
+  slug                   TEXT NOT NULL UNIQUE,
+  email                  TEXT UNIQUE,
+  plan                   TEXT NOT NULL DEFAULT 'free',
+  pages_used             INT NOT NULL DEFAULT 0,
+  period_reset_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  stripe_customer_id     TEXT,
+  stripe_subscription_id TEXT,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -144,3 +150,16 @@ CREATE TABLE IF NOT EXISTS webhooks (
 );
 
 CREATE INDEX IF NOT EXISTS webhooks_event_idx ON webhooks (event);
+
+-- ── Crawl Events (Phase C/D: SSE replay + audit log) ──────────────────────────
+CREATE TABLE IF NOT EXISTS crawl_events (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id        TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  event_type    TEXT NOT NULL,
+  url           TEXT,
+  data          JSONB NOT NULL DEFAULT '{}',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS crawl_events_job_idx  ON crawl_events (job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS crawl_events_type_idx ON crawl_events (job_id, event_type);
