@@ -55,3 +55,5 @@ Thumbs.db
 # Project Specific
 dump.rdb
 db/*.sqlite
+output/
+.superpowers/
