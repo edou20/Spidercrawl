@@ -2,10 +2,8 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import * as Sentry from "@sentry/node";
+import rawBody from "fastify-raw-body";
 import { registerRoutes } from "./routes.js";
-import { registerAuthRoutes } from "./auth-routes.js";
-import { registerBillingRoutes } from "./billing-routes.js";
 import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import path from "node:path";
@@ -22,19 +20,11 @@ export async function createServer() {
     requestTimeout: readIntegerEnv("REQUEST_TIMEOUT_MS", 120_000, { min: 1 }),
   });
 
-  // ── Request IDs ───────────────────────────────────────────
-  // Accept inbound X-Request-ID (from load balancer / client) or generate one.
-  // Echo it back in the response so clients can correlate logs.
+  // ── Request tracking ──────────────────────────────────────
   app.addHook("onRequest", async (request) => {
-    const reqId = (request.headers["x-request-id"] as string) || crypto.randomUUID();
+    const reqId = request.headers["x-request-id"] as string || crypto.randomUUID();
     request.id = reqId;
     request.headers["x-request-id"] = reqId;
-    // Child logger binds requestId to every log line emitted during this request
-    (request as any).log = logger.child({ requestId: reqId });
-  });
-
-  app.addHook("onSend", async (request, reply) => {
-    reply.header("X-Request-ID", request.id as string);
   });
 
   // ── Plugins ──────────────────────────────────────────────────
@@ -44,9 +34,21 @@ export async function createServer() {
     timeWindow: process.env.API_RATE_LIMIT_WINDOW ?? "1 minute",
   });
 
+  await app.register(rawBody, {
+    field: "rawBody",
+    global: false,
+    encoding: false,
+    runFirst: true,
+  });
+
   // ── API key enforcement ──────────────────────────────────────
   if (process.env.REQUIRE_API_KEY === "true") {
-    const OPEN_ROUTES = new Set(["/health", "/v1/ai/status"]);
+    const OPEN_ROUTES = new Set([
+      "/health",
+      "/v1/ai/status",
+      "/auth/register",
+      "/billing/webhook",
+    ]);
 
     app.addHook("onRequest", async (request, reply) => {
       const urlPath = request.url.split("?")[0];
@@ -122,9 +124,14 @@ export async function createServer() {
   }));
 
   // ── API Routes ───────────────────────────────────────────────
-  await registerAuthRoutes(app);
-  await registerBillingRoutes(app);
   await registerRoutes(app);
+
+  const landingIndex = path.join(process.cwd(), "landing", "index.html");
+  if (fs.existsSync(landingIndex)) {
+    app.get("/", async (_request, reply) => {
+      return reply.type("text/html").send(fs.readFileSync(landingIndex));
+    });
+  }
 
   // ── Dashboard (static SPA at /app) ────────────────────────────
   const dashboardDist = path.resolve(process.cwd(), "dashboard/dist");
@@ -146,12 +153,16 @@ export async function createServer() {
   }
 
   // ── Global error handler ─────────────────────────────────────
-  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
-    const requestId = request.id as string | undefined;
-    logger.error({ err: error, requestId }, "Unhandled request error");
-    const status = error.statusCode || 500;
-    if (status >= 500) Sentry.captureException(error, { extra: { requestId, url: request.url } });
-    reply.status(status).send({
+  try {
+    const Sentry = await import("@sentry/node");
+    Sentry.setupFastifyErrorHandler(app);
+  } catch {
+    // Sentry not available or DSN not set — skip
+  }
+
+  app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
+    logger.error(error, "Unhandled error");
+    reply.status(error.statusCode || 500).send({
       success: false,
       error: error.message || "Internal Server Error",
     });

@@ -7,6 +7,7 @@ import { isAIAvailable } from "../ai/provider.js";
 import { resolveEntities, resolveEntitiesForPage } from "../ai/entity-resolver.js";
 import { logger } from "../lib/logger.js";
 import { upsertJob, updateJobStatus, insertPage, getJobRequest, getJobRecord, getJobPages, getJobPagesWithContent, getVisitedUrls, listJobs, getPageHashes, getOldPageResult, insertCrawlEvent } from "../lib/job-store.js";
+import { incrementOrgPagesUsed } from "../lib/org-billing.js";
 import { emitCrawlEvent } from "../lib/crawl-events.js";
 import { deliverJobWebhooks } from "../lib/webhooks.js";
 import { isDbEnabled } from "../lib/db.js";
@@ -703,6 +704,9 @@ async function runCrawl(jobId: string, req: CrawlRequest): Promise<void> {
       // Persist full content to Postgres
       try {
         await insertPage(jobId, item.depth, result, jsonld, entityType, result.contentHash);
+        if (job.orgId) {
+          void incrementOrgPagesUsed(job.orgId, 1);
+        }
         await updateJobStatus(job);
       } catch (err: any) {
         logger.warn({ err: err.message, jobId }, "Failed to persist page to Postgres");

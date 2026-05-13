@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { getDb, isDbEnabled } from "../lib/db.js";
+import { createOpenAIClient } from "../lib/openai-client.js";
 import { logger } from "../lib/logger.js";
 import { readIntegerEnv } from "../lib/env-utils.js";
 
@@ -98,7 +99,7 @@ export async function exportJobToRag(jobId: string): Promise<RagExportResult> {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY required for embeddings");
 
   const db = getDb();
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = createOpenAIClient();
 
   const pages = await db.query<{ id: string; url: string; title: string; markdown: string | null }>(
     `SELECT id, url, title, markdown FROM pages WHERE job_id = $1 AND markdown IS NOT NULL`,
@@ -178,7 +179,7 @@ export async function searchEmbeddings(
   if (!isDbEnabled()) throw new Error("DATABASE_URL is not configured");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY required");
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = createOpenAIClient();
   const [vec] = await embedBatch(client, [query]);
   const db = getDb();
 

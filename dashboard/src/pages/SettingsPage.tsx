@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Settings, Key, Plus, Trash2, Copy, CheckCheck, Code2, Terminal, Globe, Zap, Eye, EyeOff, AlertTriangle, Bell, Share2, Bot, Wrench } from "lucide-react";
-import { listApiKeys, createApiKey, revokeApiKey, ApiKey, listWebhooks, createWebhook, deleteWebhook, WebhookRow, CreatedWebhookRow, getBillingInfo, getBillingCheckoutUrl, BillingInfo } from "../api";
+import { Settings, Key, Plus, Trash2, Copy, CheckCheck, Code2, Terminal, Globe, Zap, Eye, EyeOff, AlertTriangle, Bell, Share2, Bot, Wrench, CreditCard, TrendingUp } from "lucide-react";
+import { listApiKeys, createApiKey, revokeApiKey, ApiKey, listWebhooks, createWebhook, deleteWebhook, WebhookRow, CreatedWebhookRow, getOrgBilling, startCheckout, getBillingPortalUrl, OrgBilling } from "../api";
 import { resolveApiBaseUrl } from "../api-base";
 
 const API_BASE = resolveApiBaseUrl(
@@ -138,7 +138,9 @@ export default function SettingsPage() {
   const [newKey, setNewKey] = useState<ApiKey | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [revokeConfirm, setRevokeConfirm] = useState<string | null>(null);
-  const [tab, setTab] = useState<"keys" | "integration" | "webhooks" | "mcp">("keys");
+  const [tab, setTab] = useState<"keys" | "integration" | "webhooks" | "mcp" | "billing">("keys");
+  const [billing, setBilling] = useState<OrgBilling | null>(null);
+  const [billingBusy, setBillingBusy] = useState(false);
   const [lang, setLang] = useState<"curl" | "python" | "agent">("agent");
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,13 +149,6 @@ export default function SettingsPage() {
   const [newWebhook, setNewWebhook] = useState<CreatedWebhookRow | null>(null);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEvent, setWebhookEvent] = useState("job.completed");
-
-  const [billing, setBilling] = useState<BillingInfo | null>(null);
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
-
-  useEffect(() => {
-    getBillingInfo().then(setBilling).catch(() => {});
-  }, []);
 
   const demoKey = newKey?.key ?? (keys[0] ? `sk-sc-${"•".repeat(36)}` : "YOUR_API_KEY");
   const snippet = CODE_SNIPPETS[lang](demoKey);
@@ -165,7 +160,38 @@ export default function SettingsPage() {
   useEffect(() => {
     if (tab === "keys" || tab === "integration") loadKeys();
     if (tab === "webhooks") loadWebhooks();
+    if (tab === "billing") loadBilling();
   }, [tab]);
+
+  async function loadBilling() {
+    try {
+      setBilling(await getOrgBilling());
+    } catch {
+      // silently fail — billing info not critical
+    }
+  }
+
+  async function handleCheckout(plan: "starter" | "pro") {
+    setBillingBusy(true);
+    try {
+      const url = await startCheckout(plan);
+      window.location.href = url;
+    } catch (e: any) {
+      setError(`Checkout failed: ${e.message}`);
+      setBillingBusy(false);
+    }
+  }
+
+  async function handlePortal() {
+    setBillingBusy(true);
+    try {
+      const url = await getBillingPortalUrl();
+      window.location.href = url;
+    } catch (e: any) {
+      setError(`Could not open billing portal: ${e.message}`);
+      setBillingBusy(false);
+    }
+  }
 
   async function loadKeys() {
     try {
@@ -217,7 +243,7 @@ export default function SettingsPage() {
       setWebhookUrl("");
       await loadWebhooks();
     } catch (e: any) {
-      setError("Failed to create webhook: " + e.message);
+      alert("Failed to create webhook: " + e.message);
     } finally {
       setBusy(false);
     }
@@ -242,74 +268,6 @@ export default function SettingsPage() {
         <p>Manage API keys and integrate Spidercrawl with your AI agents and workflows.</p>
       </div>
 
-      {/* ── Usage & Plan card ── */}
-      {billing && (
-        <div className="card" style={{ padding: "20px 24px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".5px", color: "var(--text-tertiary)" }}>Plan</span>
-              <span style={{ marginLeft: 10, background: billing.plan === "free" ? "rgba(148,163,184,.12)" : "rgba(56,189,248,.12)", color: billing.plan === "free" ? "var(--text-secondary)" : "var(--brand)", fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 6, textTransform: "capitalize" }}>
-                {billing.plan}
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {billing.plan === "free" && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  disabled={checkoutBusy}
-                  onClick={async () => {
-                    setCheckoutBusy(true);
-                    try { window.location.href = await getBillingCheckoutUrl("starter"); }
-                    catch { setCheckoutBusy(false); }
-                  }}
-                >
-                  Upgrade to Starter — $29/mo
-                </button>
-              )}
-              {billing.plan === "starter" && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  disabled={checkoutBusy}
-                  onClick={async () => {
-                    setCheckoutBusy(true);
-                    try { window.location.href = await getBillingCheckoutUrl("pro"); }
-                    catch { setCheckoutBusy(false); }
-                  }}
-                >
-                  Upgrade to Pro — $99/mo
-                </button>
-              )}
-              {billing.plan !== "free" && (
-                <a className="btn btn-ghost btn-sm" href="/billing/portal">Manage subscription</a>
-              )}
-            </div>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
-            <span>Pages this month</span>
-            <span>{billing.pagesUsed.toLocaleString()} / {billing.pagesLimit.toLocaleString()}</span>
-          </div>
-          <div style={{ background: "var(--surface-raised, rgba(255,255,255,.05))", borderRadius: 6, height: 6, overflow: "hidden" }}>
-            <div style={{
-              height: "100%", borderRadius: 6,
-              width: `${Math.min(billing.usagePercent, 100)}%`,
-              background: billing.usagePercent >= 90 ? "var(--red)" : billing.usagePercent >= 70 ? "#f59e0b" : "var(--brand)",
-              transition: "width .4s ease",
-            }} />
-          </div>
-          {billing.usagePercent >= 80 && (
-            <div style={{ marginTop: 10, fontSize: 12, color: billing.usagePercent >= 100 ? "var(--red)" : "#f59e0b", display: "flex", alignItems: "center", gap: 6 }}>
-              <AlertTriangle size={11} />
-              {billing.usagePercent >= 100
-                ? "Monthly limit reached — crawls are paused. Upgrade to continue."
-                : `You've used ${billing.usagePercent}% of your monthly limit.`}
-            </div>
-          )}
-          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-tertiary)" }}>
-            Resets {new Date(billing.periodResetAt).toLocaleDateString("en-US", { month: "long", day: "numeric" })}
-          </div>
-        </div>
-      )}
-
       {error && (
         <div className="msg-banner err">
           <AlertTriangle size={13} /> {error}
@@ -329,6 +287,9 @@ export default function SettingsPage() {
         </button>
         <button className={`tab-btn ${tab === "mcp" ? "active" : ""}`} onClick={() => setTab("mcp")}>
           <Bot size={12} /> MCP Server
+        </button>
+        <button className={`tab-btn ${tab === "billing" ? "active" : ""}`} onClick={() => setTab("billing")}>
+          <CreditCard size={12} /> Billing
         </button>
       </div>
 
@@ -778,6 +739,76 @@ OPENAI_API_KEY=your-openai-key`}
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Billing Tab ────────────────────────────────── */}
+      {tab === "billing" && (
+        <div className="stack">
+          {/* Current plan */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title"><TrendingUp size={14} /> Current Plan</span>
+              {billing && (
+                <span className="badge badge-sm" style={{ textTransform: "capitalize", background: billing.plan === "free" ? "rgba(100,100,100,0.2)" : "rgba(139,92,246,0.15)", color: billing.plan === "free" ? "var(--text-secondary)" : "#a78bfa" }}>
+                  {billing.plan}
+                </span>
+              )}
+            </div>
+            <div className="card-body stack-sm">
+              {billing ? (
+                <>
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span className="text-sm text-secondary">Pages used this period</span>
+                      <span className="text-sm font-semibold">{billing.pagesUsed.toLocaleString()} / {billing.pagesQuota.toLocaleString()}</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 999, background: "var(--bg-elevated)", overflow: "hidden" }}>
+                      <div style={{
+                        height: "100%",
+                        width: `${Math.min(100, Math.round(billing.pagesUsed / billing.pagesQuota * 100))}%`,
+                        background: billing.pagesUsed / billing.pagesQuota >= 0.9 ? "#f87171" : billing.pagesUsed / billing.pagesQuota >= 0.8 ? "#fbbf24" : "var(--brand)",
+                        borderRadius: 999,
+                        transition: "width 0.4s ease",
+                      }} />
+                    </div>
+                  </div>
+                  {billing.stripeCustomerId && (
+                    <button className="btn btn-secondary btn-sm" style={{ alignSelf: "flex-start" }} onClick={handlePortal} disabled={billingBusy}>
+                      {billingBusy ? <span className="spinner" /> : <><CreditCard size={12} /> Manage subscription</>}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-secondary">Loading billing info…</p>
+              )}
+            </div>
+          </div>
+
+          {/* Upgrade plans */}
+          {billing?.plan === "free" && (
+            <div className="card">
+              <div className="card-header"><span className="card-title"><Zap size={14} /> Upgrade Plan</span></div>
+              <div className="card-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {([
+                  { id: "starter" as const, name: "Starter", pages: "100,000 pages/mo", price: "$29/mo", desc: "Perfect for small teams and projects." },
+                  { id: "pro" as const, name: "Pro", pages: "500,000 pages/mo", price: "$99/mo", desc: "For power users and production pipelines." },
+                ] as const).map(plan => (
+                  <div key={plan.id} style={{ border: "1px solid var(--border-default)", borderRadius: 10, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 15 }}>{plan.name}</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--brand)", margin: "4px 0" }}>{plan.price}</div>
+                      <div className="text-sm text-secondary">{plan.pages}</div>
+                      <div className="text-xs text-tertiary" style={{ marginTop: 4 }}>{plan.desc}</div>
+                    </div>
+                    <button className="btn btn-primary btn-sm" onClick={() => handleCheckout(plan.id)} disabled={billingBusy} style={{ marginTop: "auto" }}>
+                      {billingBusy ? <span className="spinner" /> : <>Upgrade to {plan.name} →</>}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

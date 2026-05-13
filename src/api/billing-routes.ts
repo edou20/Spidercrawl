@@ -1,157 +1,200 @@
 import type { FastifyInstance } from "fastify";
 import Stripe from "stripe";
-import { getDb, isDbEnabled } from "../lib/db.js";
+import { z } from "zod";
 import { logger } from "../lib/logger.js";
-import { getOrgBilling, setPlan, PLAN_LIMITS } from "../lib/billing.js";
+import {
+  applySubscriptionToOrg,
+  defaultPagesQuotaForPlan,
+  getOrgForAuth,
+  resetOrgPagesUsed,
+  setOrgToFreeTier,
+  updateOrgStripeCustomer,
+} from "../lib/org-billing.js";
+import { resolveOrgIdFromBearer } from "../lib/api-key-resolve.js";
 
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
-const APP_URL = process.env.APP_URL ?? "https://spidercrawl.dev";
+const CheckoutSchema = z.object({
+  plan: z.enum(["starter", "pro"]),
+});
 
-const PRICE_TO_PLAN: Record<string, string> = {
-  [process.env.STRIPE_PRICE_STARTER ?? ""]: "starter",
-  [process.env.STRIPE_PRICE_PRO ?? ""]: "pro",
-};
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY?.trim();
+  if (!key) return null;
+  return new Stripe(key);
+}
 
-function getStripe(): import("stripe").Stripe {
-  if (!STRIPE_SECRET_KEY) throw new Error("STRIPE_SECRET_KEY not configured");
-  return new (Stripe as any)(STRIPE_SECRET_KEY, { apiVersion: "2026-04-22.dahlia" });
+function resolvePlanFromPriceId(priceId: string | undefined): { plan: string; quota: number } {
+  const starter = process.env.STRIPE_PRICE_STARTER?.trim();
+  const pro = process.env.STRIPE_PRICE_PRO?.trim();
+  if (priceId && starter && priceId === starter) {
+    return { plan: "starter", quota: defaultPagesQuotaForPlan("starter") };
+  }
+  if (priceId && pro && priceId === pro) {
+    return { plan: "pro", quota: defaultPagesQuotaForPlan("pro") };
+  }
+  return { plan: "free", quota: defaultPagesQuotaForPlan("free") };
 }
 
 export async function registerBillingRoutes(app: FastifyInstance) {
-  // ── POST /billing/checkout ────────────────────────────────────
-  // Creates a Stripe Checkout session and returns the redirect URL.
-  app.post("/billing/checkout", async (request, reply) => {
-    if (!request.orgId) return reply.status(401).send({ success: false, error: "Authentication required" });
-
-    const { plan } = (request.body as any) ?? {};
-    const priceId = plan === "pro"
-      ? process.env.STRIPE_PRICE_PRO
-      : process.env.STRIPE_PRICE_STARTER;
-
-    if (!priceId) {
-      return reply.status(400).send({ success: false, error: "Invalid plan. Choose 'starter' or 'pro'." });
-    }
-
-    const billing = await getOrgBilling(request.orgId);
-    if (!billing) return reply.status(404).send({ success: false, error: "Organization not found" });
-
-    try {
+  app.post(
+    "/billing/webhook",
+    {
+      config: {
+        rawBody: true,
+      },
+    },
+    async (request, reply) => {
       const stripe = getStripe();
-
-      // Reuse existing Stripe customer if available
-      let customerId = billing.stripeCustomerId;
-      if (!customerId) {
-        const db = getDb();
-        const { rows } = await db.query("SELECT email, name FROM organizations WHERE id = $1", [request.orgId]);
-        const org = rows[0];
-        const customer = await stripe.customers.create({
-          email: org?.email ?? undefined,
-          name: org?.name ?? undefined,
-          metadata: { orgId: request.orgId },
-        });
-        customerId = customer.id;
-        await setPlan(request.orgId, billing.plan, customerId);
+      const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+      if (!stripe || !secret) {
+        return reply.status(503).send({ success: false, error: "Billing webhook not configured" });
+      }
+      const sig = request.headers["stripe-signature"];
+      if (!sig || typeof sig !== "string") {
+        return reply.status(400).send({ success: false, error: "Missing stripe-signature header" });
+      }
+      const raw = (request as unknown as { rawBody?: Buffer | string }).rawBody;
+      const payload = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === "string" ? raw : "", "utf8");
+      let event: unknown;
+      try {
+        event = stripe.webhooks.constructEvent(payload, sig, secret);
+      } catch (err: any) {
+        logger.warn({ err: err.message }, "Stripe webhook signature verification failed");
+        return reply.status(400).send({ success: false, error: "Invalid signature" });
       }
 
-      const session = await stripe.checkout.sessions.create({
-        customer: customerId,
-        mode: "subscription",
-        line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `${APP_URL}/app/settings?upgraded=1`,
-        cancel_url: `${APP_URL}/app/settings`,
-        metadata: { orgId: request.orgId, plan: plan ?? "starter" },
-      });
-
-      return reply.status(200).send({ success: true, data: { url: session.url } });
-    } catch (err: any) {
-      logger.error({ err: err.message }, "Stripe checkout failed");
-      return reply.status(500).send({ success: false, error: "Failed to create checkout session" });
-    }
-  });
-
-  // ── GET /billing/portal ───────────────────────────────────────
-  // Redirects to Stripe Customer Portal for self-serve plan management.
-  app.get("/billing/portal", async (request, reply) => {
-    if (!request.orgId) return reply.status(401).send({ success: false, error: "Authentication required" });
-
-    const billing = await getOrgBilling(request.orgId);
-    if (!billing?.stripeCustomerId) {
-      return reply.status(400).send({ success: false, error: "No active subscription found." });
-    }
-
-    try {
-      const stripe = getStripe();
-      const session = await stripe.billingPortal.sessions.create({
-        customer: billing.stripeCustomerId,
-        return_url: `${APP_URL}/app/settings`,
-      });
-      return reply.redirect(session.url);
-    } catch (err: any) {
-      logger.error({ err: err.message }, "Stripe portal failed");
-      return reply.status(500).send({ success: false, error: "Failed to open billing portal" });
-    }
-  });
-
-  // ── POST /billing/webhook ─────────────────────────────────────
-  // Stripe sends events here. Must be registered before body parsing.
-  app.post("/billing/webhook", {
-    config: { rawBody: true },
-  }, async (request, reply) => {
-    if (!STRIPE_WEBHOOK_SECRET) {
-      return reply.status(500).send({ success: false, error: "Webhook secret not configured" });
-    }
-
-    const sig = request.headers["stripe-signature"] as string;
-    let event: ReturnType<typeof getStripe>["webhooks"] extends { constructEvent(...args: any[]): infer E } ? E : any;
-
-    try {
-      const stripe = getStripe();
-      const rawBody = (request as any).rawBody ?? Buffer.from(JSON.stringify(request.body));
-      event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
-    } catch (err: any) {
-      logger.warn({ err: err.message }, "Stripe webhook signature invalid");
-      return reply.status(400).send({ error: "Invalid signature" });
-    }
-
-    try {
-      if (!isDbEnabled()) return reply.status(200).send({ received: true });
-
-      if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.created") {
-        const sub = event.data.object as any;
-        const orgId = sub.metadata?.orgId;
-        if (!orgId) return reply.status(200).send({ received: true });
-
-        const priceId = sub.items.data[0]?.price?.id ?? "";
-        const plan = PRICE_TO_PLAN[priceId] ?? "free";
-        await setPlan(orgId, plan, sub.customer as string, sub.id);
-        logger.info({ orgId, plan }, "Plan updated via Stripe webhook");
-      }
-
-      if (event.type === "customer.subscription.deleted") {
-        const sub = event.data.object as any;
-        const orgId = sub.metadata?.orgId;
-        if (orgId) {
-          await setPlan(orgId, "free");
-          logger.info({ orgId }, "Subscription cancelled — reverted to free plan");
+      try {
+        switch ((event as { type: string }).type) {
+          case "customer.subscription.created":
+          case "customer.subscription.updated": {
+            const sub = (event as { data: { object: unknown } }).data.object as {
+              metadata?: { org_id?: string };
+              items?: { data?: Array<{ price?: { id?: string } }> };
+              status?: string;
+              id?: string;
+            };
+            const orgId = sub.metadata?.org_id;
+            if (!orgId) break;
+            const priceId = sub.items?.data?.[0]?.price?.id;
+            const { plan, quota } = resolvePlanFromPriceId(priceId);
+            if (sub.status === "canceled" || sub.status === "unpaid" || sub.status === "incomplete_expired") {
+              await setOrgToFreeTier(orgId);
+            } else {
+              await applySubscriptionToOrg(orgId, sub.id ?? null, plan, quota);
+            }
+            break;
+          }
+          case "customer.subscription.deleted": {
+            const sub = (event as { data: { object: unknown } }).data.object as { metadata?: { org_id?: string } };
+            const orgId = sub.metadata?.org_id;
+            if (orgId) await setOrgToFreeTier(orgId);
+            break;
+          }
+          case "invoice.paid":
+          case "invoice.payment_succeeded": {
+            // Reset monthly usage counter when a new billing period begins
+            const inv = (event as { data: { object: unknown } }).data.object as {
+              customer?: string;
+              billing_reason?: string;
+            };
+            // Only reset on subscription renewals, not the first-ever payment
+            if (inv.billing_reason === "subscription_cycle" && inv.customer) {
+              const stripe = getStripe()!;
+              const customer = await stripe.customers.retrieve(inv.customer) as { metadata?: { org_id?: string } };
+              const orgId = customer.metadata?.org_id;
+              if (orgId) await resetOrgPagesUsed(orgId);
+            }
+            break;
+          }
+          default:
+            break;
         }
+      } catch (err: any) {
+        logger.error(err, "Stripe webhook handler error");
+        return reply.status(500).send({ success: false, error: err.message });
       }
-    } catch (err: any) {
-      logger.error({ err: err.message, eventType: event.type }, "Stripe webhook handler failed");
+
+      return reply.send({ received: true });
+    }
+  );
+
+  app.post("/billing/checkout", async (request, reply) => {
+    const stripe = getStripe();
+    if (!stripe) {
+      return reply.status(503).send({ success: false, error: "Stripe is not configured (STRIPE_SECRET_KEY)." });
+    }
+    const orgId = request.orgId ?? (await resolveOrgIdFromBearer(request.headers.authorization));
+    if (!orgId) {
+      return reply.status(401).send({ success: false, error: "Authentication required" });
+    }
+    const parsed = CheckoutSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ success: false, error: "Validation failed", details: parsed.error.flatten() });
+    }
+    const { plan } = parsed.data;
+    const priceId =
+      plan === "starter" ? process.env.STRIPE_PRICE_STARTER?.trim() : process.env.STRIPE_PRICE_PRO?.trim();
+    if (!priceId) {
+      return reply.status(500).send({ success: false, error: `Missing STRIPE_PRICE_${plan.toUpperCase()} env var` });
     }
 
-    return reply.status(200).send({ received: true });
+    const org = await getOrgForAuth(orgId);
+    if (!org) {
+      return reply.status(404).send({ success: false, error: "Organization not found" });
+    }
+
+    const appUrl = (process.env.APP_URL || "http://127.0.0.1:3200").replace(/\/+$/, "");
+
+    let customerId = org.stripe_customer_id ?? undefined;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: org.email ?? undefined,
+        metadata: { org_id: orgId },
+      });
+      const cid = customer.id;
+      if (!cid) {
+        return reply.status(500).send({ success: false, error: "Stripe did not return a customer id" });
+      }
+      customerId = cid;
+      await updateOrgStripeCustomer(orgId, customerId);
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: customerId,
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${appUrl}/app/?billing=success`,
+      cancel_url: `${appUrl}/app/?billing=cancel`,
+      metadata: { org_id: orgId, plan },
+      subscription_data: { metadata: { org_id: orgId, plan } },
+    });
+
+    if (!session.url) {
+      return reply.status(500).send({ success: false, error: "Stripe did not return a checkout URL" });
+    }
+    return reply.send({ success: true, data: { url: session.url } });
   });
 
-  // ── GET /billing/plans ────────────────────────────────────────
-  app.get("/billing/plans", async (_request, reply) => {
-    return reply.status(200).send({
-      success: true,
-      data: [
-        { id: "free",    name: "Free",    price: 0,  pagesPerMonth: PLAN_LIMITS.free },
-        { id: "starter", name: "Starter", price: 29, pagesPerMonth: PLAN_LIMITS.starter },
-        { id: "pro",     name: "Pro",     price: 99, pagesPerMonth: PLAN_LIMITS.pro },
-      ],
+  app.post("/billing/portal", async (request, reply) => {
+    const stripe = getStripe();
+    if (!stripe) {
+      return reply.status(503).send({ success: false, error: "Stripe is not configured (STRIPE_SECRET_KEY)." });
+    }
+    const orgId = request.orgId ?? (await resolveOrgIdFromBearer(request.headers.authorization));
+    if (!orgId) {
+      return reply.status(401).send({ success: false, error: "Authentication required" });
+    }
+    const org = await getOrgForAuth(orgId);
+    if (!org) {
+      return reply.status(404).send({ success: false, error: "Organization not found" });
+    }
+    if (!org.stripe_customer_id) {
+      return reply.status(400).send({ success: false, error: "No active subscription found — start a plan first." });
+    }
+    const appUrl = (process.env.APP_URL || "http://127.0.0.1:3200").replace(/\/+$/, "");
+    const session = await stripe.billingPortal.sessions.create({
+      customer: org.stripe_customer_id,
+      return_url: `${appUrl}/app/settings`,
     });
+    return reply.send({ success: true, data: { url: session.url } });
   });
 }

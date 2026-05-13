@@ -4,7 +4,7 @@
   # 🕷️ Spidercrawl
   **The AI-Native Web Intelligence Engine**
 
-  [![Spidercrawl CI](https://github.com/edou20/Spidercrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/edou20/Spidercrawl/actions/workflows/ci.yml)
+  [![Spidercrawl CI](https://github.com/jssm/spidercrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/jssm/spidercrawl/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](#)
   [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
@@ -13,7 +13,7 @@
     <b>Transform messy web pages into clean, structured knowledge for LLM apps, agents, and RAG systems.</b>
   </p>
 
-  [Explore Docs](docs/index.md) • [API Reference](docs/api/reference.md) • [Report Bug](https://github.com/edou20/Spidercrawl/issues) • [Request Feature](https://github.com/edou20/Spidercrawl/issues)
+  [Explore Docs](docs/index.md) • [API Reference](docs/api/reference.md) • [Report Bug](https://github.com/jssm/spidercrawl/issues) • [Request Feature](https://github.com/jssm/spidercrawl/issues)
 </div>
 
 <hr />
@@ -36,12 +36,6 @@ The dashboard is built around Knowledge Ops: launch crawls, monitor reliability,
 ## Quick Start: Local Development
 
 1. Install Node dependencies.
-
-```bash
-npm run setup
-```
-
-If you prefer manual install steps instead:
 
 ```bash
 npm install
@@ -101,11 +95,9 @@ Then open:
 
 ## Verify The Project
 
-Run the full local verification suite after installing both the root dependencies and dashboard dependencies:
+Run the full local verification suite:
 
 ```bash
-npm install
-npm run dashboard:install
 npm run verify
 ```
 
@@ -120,17 +112,26 @@ This runs the TypeScript build, backend lint, backend tests, dashboard build, Ty
 | `REDIS_HOST` | Yes | `127.0.0.1` | Redis host for BullMQ/status cache. |
 | `REDIS_PORT` | Yes | `6379` | Redis port. |
 | `REDIS_PASSWORD` | No | empty | Redis password if needed. |
+| `REDIS_URL` | No | empty | If set, overrides `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` (Railway-style URL). |
 | `DATABASE_URL` | Recommended | local Postgres URL | Enables persisted jobs, pages, events, schedules, API keys, and exports. Unset for Redis-only operation. |
 | `WORKER_HOST` | No | `127.0.0.1` | Python worker host. Use `worker` in Docker. |
 | `WORKER_PORT` | No | `8400` | Python worker port. |
 | `WORKER_URL` | No | derived | Full worker scrape URL override. |
 | `OPENAI_API_KEY` | Optional | empty | Used for OpenAI extraction/embeddings/search features. |
+| `OPENAI_BASE_URL` | No | empty | OpenAI-compatible API base (e.g. `https://openrouter.ai/api/v1` for OpenRouter). |
+| `OPENAI_CHAT_MODEL` | No | `gpt-4o-mini` | Chat model id; use an OpenRouter slug when `OPENAI_BASE_URL` points to OpenRouter. |
+| `OPENROUTER_HTTP_REFERER` | No | empty | Optional OpenRouter attribution header. |
+| `OPENROUTER_APP_TITLE` | No | empty | Optional OpenRouter `X-Title` header. |
 | `GOOGLE_AI_API_KEY` | Optional | empty | Used for Gemini extraction/link scoring/vision features. |
-| `REQUIRE_API_KEY` | Optional | `false` | Set to `true` to require `Authorization: Bearer <api-key>` on protected routes. |
+| `REQUIRE_API_KEY` | Optional | `false` | Set to `true` to require `Authorization: Bearer sk-sc-...`. |
 | `MAX_CONCURRENT_CRAWLS` | Optional | `10` | Limits active crawl jobs. |
 | `CRAWL_EXECUTION_MODE` | Optional | `auto` | `auto` uses BullMQ with fallback, `queue` disables fallback, `inline` skips BullMQ for local debugging. |
 | `CRAWL_QUEUE_FALLBACK_MS` | Optional | `5000` | In `auto`, queued jobs run in-process if BullMQ does not pick them up in time. |
 | `STALE_QUEUED_JOB_MS` | Optional | `600000` | Startup reconciliation window for old queued jobs. |
+
+### Hosted auth, billing, and quotas
+
+For **`POST /auth/register`**, **`GET /auth/me`**, Stripe Checkout/webhooks, Resend welcome email, page quotas, **`REDIS_URL`**, landing page at `/`, and DB keepalive, see **[docs/guide/LAUNCH_GUIDE.md](docs/guide/LAUNCH_GUIDE.md)** and **`.env.example`**.
 
 ## API Basics
 
@@ -275,6 +276,10 @@ npm start
 ```
 
 Open `http://127.0.0.1:3200/app/`.
+
+## Hosted deployment (Railway, Render, Fly.io, Vercel)
+
+Spidercrawl needs a **long-running** API process plus **Redis** and **Postgres** for full functionality. See **[docs/guide/deployment-hosted.md](docs/guide/deployment-hosted.md)** for platform-specific notes (including why **Vercel is not suited for the API** and how to host a static dashboard there instead). Published docs: run `npm run docs:install && npm run docs:dev` and open *Guide → Hosted deployment*.
 
 ## Authentication
 

@@ -23,6 +23,6 @@ describe("resolveApiBaseUrl", () => {
 
   it("uses an explicit docs URL when configured and otherwise falls back to hosted docs", () => {
     expect(resolveDocsUrl("http://127.0.0.1:5173", "https://docs.example.com/guide")).toBe("https://docs.example.com/guide");
-    expect(resolveDocsUrl("http://127.0.0.1:5173")).toBe("https://github.com/jssm/spidercrawl/tree/main/docs");
+    expect(resolveDocsUrl("http://127.0.0.1:5173")).toBe("https://github.com/edou20/Spidercrawl/tree/main/docs");
   });
 });

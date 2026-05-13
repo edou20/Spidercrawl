@@ -1,15 +1,11 @@
 import "dotenv/config";
 import * as Sentry from "@sentry/node";
 
-// Sentry must init before any other imports so it can instrument them.
 if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV ?? "development",
-    tracesSampleRate: 0.1,
-  });
+  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
 }
 
+import crypto from "node:crypto";
 import { createServer } from "./api/server.js";
 import { logger } from "./lib/logger.js";
 import { reconcileStaleQueuedJobs, startOrchestratorWorker, syncSchedulesWithQueue } from "./core/orchestrator.js";
@@ -31,6 +27,17 @@ async function main() {
   try {
     await server.listen({ port: PORT, host: HOST });
     logger.info(`🕷️  Spidercrawl API running at http://${HOST}:${PORT}`);
+
+    if (process.env.DATABASE_URL && process.env.DISABLE_DATABASE_KEEPALIVE !== "true") {
+      const ms = readIntegerEnv("DATABASE_KEEPALIVE_MS", 86_400_000, { min: 60_000 });
+      setInterval(() => {
+        void import("./lib/db.js").then(({ getDb, isDbEnabled }) => {
+          if (!isDbEnabled()) return;
+          getDb().query("SELECT 1").catch(() => {});
+        });
+      }, ms).unref();
+      logger.info({ ms }, "Database keepalive interval started");
+    }
 
     // Start background worker for crawl jobs
     startOrchestratorWorker();
@@ -77,16 +84,5 @@ async function bootstrapMultiTenancy() {
     console.log(`\n🔑 INITIAL API KEY: ${apiKey}\n`);
   }
 }
-
-process.on("unhandledRejection", (reason) => {
-  logger.error({ reason }, "Unhandled promise rejection");
-  Sentry.captureException(reason);
-});
-
-process.on("uncaughtException", (error) => {
-  logger.error({ err: error }, "Uncaught exception — shutting down");
-  Sentry.captureException(error);
-  process.exit(1);
-});
 
 main();

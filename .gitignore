@@ -5,12 +5,8 @@ env/
 venv/
 ENV/
 bin/
-/lib/
+# lib/ intentionally NOT ignored — src/lib/ is our source code
 include/
-
-# Keep source library code tracked
-!src/lib/
-!src/lib/**
 
 # Build and Output
 dist/
@@ -55,9 +51,7 @@ Thumbs.db
 *.swp
 *.swo
 .claude/
-.superpowers/
 
 # Project Specific
 dump.rdb
 db/*.sqlite
-output/

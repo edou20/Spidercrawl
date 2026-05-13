@@ -1,135 +1,91 @@
 import type { FastifyInstance } from "fastify";
-import { nanoid } from "nanoid";
-import { getDb, isDbEnabled } from "../lib/db.js";
+import { z } from "zod";
 import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
-import { getOrgBilling, PLAN_LIMITS } from "../lib/billing.js";
+import { registerOrganizationWithApiKey, getOrgForAuth } from "../lib/org-billing.js";
+import { isDbEnabled } from "../lib/db.js";
+import { sendTransactionalEmail } from "../lib/email.js";
+import { resolveOrgIdFromBearer } from "../lib/api-key-resolve.js";
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM_EMAIL = process.env.FROM_EMAIL ?? "noreply@spidercrawl.dev";
-const APP_URL = process.env.APP_URL ?? "https://spidercrawl.dev";
-
-async function sendApiKeyEmail(to: string, apiKey: string): Promise<void> {
-  if (!RESEND_API_KEY) {
-    logger.warn("RESEND_API_KEY not set — skipping welcome email");
-    return;
-  }
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: FROM_EMAIL,
-      to,
-      subject: "Your Spidercrawl API key",
-      html: `
-        <h2>Welcome to Spidercrawl</h2>
-        <p>Here is your API key:</p>
-        <pre style="background:#f4f4f4;padding:12px;border-radius:6px;font-size:16px">${apiKey}</pre>
-        <p>Quick start:</p>
-        <pre style="background:#f4f4f4;padding:12px;border-radius:6px">curl -X POST ${APP_URL}/v1/crawl \\
-  -H "Authorization: Bearer ${apiKey}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"url":"https://example.com","maxPages":10}'</pre>
-        <p>You're on the <strong>Free plan</strong> — ${PLAN_LIMITS.free.toLocaleString()} pages/month.</p>
-        <p><a href="${APP_URL}/app">Open your dashboard →</a></p>
-      `,
-    }),
-  });
-}
+const RegisterBodySchema = z.object({
+  name: z.string().min(1).max(200),
+  email: z.string().email().max(320),
+});
 
 export async function registerAuthRoutes(app: FastifyInstance) {
-  // ── POST /auth/register ───────────────────────────────────────
-  // Public endpoint — creates org + API key, emails the key, returns it.
-  app.post("/auth/register", {
-    config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
-  }, async (request, reply) => {
-    const { email, name } = (request.body as any) ?? {};
-
-    if (!email?.trim() || !email.includes("@")) {
-      return reply.status(400).send({ success: false, error: "Valid email required" });
-    }
+  app.post("/auth/register", async (request, reply) => {
     if (!isDbEnabled()) {
-      return reply.status(503).send({ success: false, error: "Database not configured" });
+      return reply.status(503).send({ success: false, error: "Registration requires DATABASE_URL (Postgres)." });
     }
-
-    const db = getDb();
-    const redis = getRedis();
-
-    // Prevent duplicate registrations
-    const { rows: existing } = await db.query(
-      "SELECT id FROM organizations WHERE email = $1 LIMIT 1",
-      [email.trim().toLowerCase()]
-    );
-    if (existing.length > 0) {
-      return reply.status(409).send({ success: false, error: "An account with this email already exists." });
+    const parsed = RegisterBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ success: false, error: "Validation failed", details: parsed.error.flatten() });
     }
-
-    const orgId = crypto.randomUUID();
-    const slug = `org-${nanoid(8)}`;
-    const orgName = name?.trim() || email.split("@")[0];
-    const apiKey = `sk-sc-${nanoid(32)}`;
-
+    const { name, email } = parsed.data;
     try {
-      await db.query(
-        `INSERT INTO organizations (id, name, slug, email, plan, pages_used, period_reset_at)
-         VALUES ($1, $2, $3, $4, 'free', 0, NOW())`,
-        [orgId, orgName, slug, email.trim().toLowerCase()]
+      const { orgId, slug, apiKey } = await registerOrganizationWithApiKey(name, email);
+      const redis = getRedis();
+      await redis.set(`apikey:lookup:${apiKey}`, JSON.stringify({ orgId }));
+      await redis.sadd("spidercrawl:apikeys", apiKey);
+
+      const appUrl = process.env.APP_URL?.trim() || "http://127.0.0.1:3200";
+      await sendTransactionalEmail(
+        email,
+        "Welcome to Spidercrawl",
+        `<p>Your organization <strong>${escapeHtml(name)}</strong> is ready.</p>
+         <p>API key (store securely): <code>${escapeHtml(apiKey)}</code></p>
+         <p>Use it as <code>Authorization: Bearer …</code> on every request when <code>REQUIRE_API_KEY=true</code>.</p>
+         <p><a href="${escapeHtml(appUrl)}/app/">Open dashboard</a></p>`
       );
-
-      await db.query(
-        `INSERT INTO api_keys (org_id, name, key) VALUES ($1, $2, $3)`,
-        [orgId, "Default Key", apiKey]
-      );
-
-      // Cache in Redis for fast auth lookups
-      await redis.set(`apikey:lookup:${apiKey}`, JSON.stringify({ orgId }), "EX", 86400 * 30);
-
-      // Send welcome email (non-blocking)
-      sendApiKeyEmail(email.trim().toLowerCase(), apiKey).catch((err) => {
-        logger.warn({ err: err.message, email }, "Failed to send welcome email");
-      });
-
-      logger.info({ orgId, email: email.trim().toLowerCase() }, "New organization registered");
 
       return reply.status(201).send({
         success: true,
         data: {
-          apiKey,
           orgId,
-          plan: "free",
-          pagesLimit: PLAN_LIMITS.free,
-          message: `Your API key has been sent to ${email}. Keep it safe — it won't be shown again.`,
+          slug,
+          apiKey,
+          message: "Save your API key now — it is not shown again.",
         },
       });
     } catch (err: any) {
-      logger.error({ err: err.message }, "Registration failed");
-      return reply.status(500).send({ success: false, error: "Registration failed. Please try again." });
+      const msg = err?.message || "Registration failed";
+      if (/already exists/i.test(msg)) {
+        return reply.status(409).send({ success: false, error: msg });
+      }
+      logger.error(err, "auth/register failed");
+      return reply.status(500).send({ success: false, error: msg });
     }
   });
 
-  // ── GET /auth/me ──────────────────────────────────────────────
-  // Returns the current org's plan + usage. Requires API key.
   app.get("/auth/me", async (request, reply) => {
-    if (!request.orgId) {
-      return reply.status(401).send({ success: false, error: "Authentication required" });
+    const orgId = request.orgId ?? (await resolveOrgIdFromBearer(request.headers.authorization));
+    if (!orgId) {
+      return reply.status(401).send({ success: false, error: "Authentication required. Pass Authorization: Bearer sk-sc-…" });
     }
-    const billing = await getOrgBilling(request.orgId);
-    if (!billing) return reply.status(404).send({ success: false, error: "Organization not found" });
-
-    const limit = PLAN_LIMITS[billing.plan] ?? PLAN_LIMITS.free;
-    return reply.status(200).send({
+    const org = await getOrgForAuth(orgId);
+    if (!org) {
+      return reply.status(404).send({ success: false, error: "Organization not found" });
+    }
+    return reply.send({
       success: true,
       data: {
-        orgId: billing.id,
-        plan: billing.plan,
-        pagesUsed: billing.pagesUsed,
-        pagesLimit: limit,
-        usagePercent: Math.round((billing.pagesUsed / limit) * 100),
-        periodResetAt: billing.periodResetAt,
+        orgId: org.id,
+        name: org.name,
+        slug: org.slug,
+        email: org.email,
+        plan: org.plan,
+        pagesUsed: org.pages_used,
+        pagesQuota: org.pages_quota,
+        stripeCustomerId: org.stripe_customer_id,
       },
     });
   });
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

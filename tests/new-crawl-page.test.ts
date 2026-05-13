@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const sourcePath = fileURLToPath(new URL("../dashboard/src/pages/NewCrawlPage.tsx", import.meta.url));
-const source = readFileSync(sourcePath, "utf8");
+const source = readFileSync(
+  "/Users/jssm/Documents/01_Projects/Spidercrawl/dashboard/src/pages/NewCrawlPage.tsx",
+  "utf8"
+);
 
 describe("NewCrawlPage source", () => {
   it("wires the URL and goal labels to stable input ids", () => {

@@ -8,12 +8,12 @@ import { onCrawlEvent } from "../lib/crawl-events.js";
 import { detectEntityType, buildPageJsonLd } from "../export/jsonld.js";
 import { buildKnowledgeGraphExport, knowledgeGraphToCytoscape, knowledgeGraphToGraphMl } from "../export/graph.js";
 import { createSearchSnippet, extractMatchedTerms, tokenizeSearchQuery } from "../export/search.js";
-import { searchEmbeddings, searchEmbeddingsGlobal } from "../export/rag.js";
+import { searchEmbeddings } from "../export/rag.js";
 import { buildKeywordHitFromRow, mergeAndRerankHybridHits, rerankHybridHit } from "./hybrid-search.js";
 import { mapSite } from "../core/mapper.js";
 import { extractStructured, extractStructuredDetailed } from "../ai/structured-extractor.js";
 import { resolveEntities } from "../ai/entity-resolver.js";
-import { isAIAvailable, aiComplete } from "../ai/provider.js";
+import { isAIAvailable, aiComplete, detectProvider } from "../ai/provider.js";
 import { getRedis } from "../lib/redis.js";
 import { getDb, isDbEnabled } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
@@ -24,14 +24,38 @@ import type { WebhookEvent } from "../lib/webhooks.js";
 import { normalizeApiPayload } from "./serialize.js";
 import { resolveReplayLimit, toReplayPayload } from "./sse-utils.js";
 import { readIntegerEnv } from "../lib/env-utils.js";
-import { isOverQuota, PLAN_LIMITS } from "../lib/billing.js";
+import { getOpenAIChatModel, getOpenAICompatibleGateway } from "../lib/openai-client.js";
+import { registerAuthRoutes } from "./auth-routes.js";
+import { registerBillingRoutes } from "./billing-routes.js";
+import { assertCrawlAllowed } from "../lib/org-billing.js";
+import { resolveOrgIdFromBearer } from "../lib/api-key-resolve.js";
+
+function buildAIRoutingStatus() {
+  const picked = detectProvider();
+  const gateway = picked === "openai" ? getOpenAICompatibleGateway() : null;
+  const activeProvider =
+    picked === "gemini"
+      ? "gemini"
+      : picked === "openai"
+        ? gateway === "openrouter"
+          ? "openrouter"
+          : gateway === "custom"
+            ? "openai-compatible"
+            : "openai"
+        : null;
+  const openAi =
+    picked === "openai"
+      ? { gateway: gateway ?? "openai", chatModel: getOpenAIChatModel() }
+      : undefined;
+  return { activeProvider, openAi };
+}
 
 function classifyAIError(err: unknown): { status: number; error: string } | null {
   const message = err instanceof Error ? err.message : String(err ?? "");
   if (/api key not valid|api_key_invalid|invalid api key|unauthorized|permission_denied|401|403/i.test(message)) {
     return {
       status: 503,
-      error: "AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY.",
+      error: "AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY. For OpenRouter set OPENAI_BASE_URL=https://openrouter.ai/api/v1 and OPENAI_CHAT_MODEL; unset GOOGLE_AI_API_KEY to use the OpenAI-compatible path.",
     };
   }
   if (/quota|rate limit|resource_exhausted|too many requests|429/i.test(message)) {
@@ -80,21 +104,6 @@ export async function registerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: "Validation failed", details: parsed.error.flatten() });
     }
 
-    // Quota check — enforce plan page limits
-    if (request.orgId) {
-      try {
-        const quota = await isOverQuota(request.orgId);
-        if (quota.over) {
-          return reply.status(429).send({
-            success: false,
-            error: `Monthly page limit reached (${quota.used.toLocaleString()} / ${quota.limit.toLocaleString()} pages). Upgrade your plan at ${process.env.APP_URL ?? "https://spidercrawl.dev"}/app/settings`,
-            code: "QUOTA_EXCEEDED",
-            plan: quota.plan,
-          });
-        }
-      } catch {}
-    }
-
     const MAX_CONCURRENT_CRAWLS = readIntegerEnv("MAX_CONCURRENT_CRAWLS", 10, { min: 1 });
     try {
       const activeJobs = await listRecentJobs(request.orgId);
@@ -107,9 +116,16 @@ export async function registerRoutes(app: FastifyInstance) {
       }
     } catch {}
 
+    const orgIdForCrawl = request.orgId ?? (await resolveOrgIdFromBearer(request.headers.authorization));
+    try {
+      await assertCrawlAllowed(orgIdForCrawl);
+    } catch (quotaErr: any) {
+      return reply.status(402).send({ success: false, error: quotaErr.message || "Quota exceeded" });
+    }
+
     try {
       const jobId = nanoid();
-      await startCrawl(jobId, parsed.data, request.orgId);
+      await startCrawl(jobId, parsed.data, orgIdForCrawl);
       return reply.status(201).send({
         success: true,
         data: {
@@ -509,7 +525,7 @@ export async function registerRoutes(app: FastifyInstance) {
   });
 
   // ─── POST /v1/search ───────────────────────────────────────
-  // Cross-job hybrid search: keyword ILIKE + optional pgvector, merged and reranked.
+  // Cross-job search optimized with SQL ILIKE
   app.post("/v1/search", async (request, reply) => {
     const { query, limit = 12 } = request.body as { query?: string; limit?: number };
     if (!query?.trim()) return reply.status(400).send({ success: false, error: "query required" });
@@ -519,19 +535,17 @@ export async function registerRoutes(app: FastifyInstance) {
       const db = getDb();
       const terms = tokenizeSearchQuery(query);
       const patterns = terms.length ? terms.map((term) => `%${term}%`) : [`%${query}%`];
-      const clauses = patterns.map((_, i) => {
-        const p = `$${i + 1}`;
-        return `(p.markdown ILIKE ${p} OR p.title ILIKE ${p} OR j.root_url ILIKE ${p})`;
+      const clauses = patterns.map((_, index) => {
+        const param = `$${index + 1}`;
+        return `(p.markdown ILIKE ${param} OR p.title ILIKE ${param} OR j.root_url ILIKE ${param})`;
       });
       const scoreSql = patterns
-        .map((_, i) => {
-          const p = `$${i + 1}`;
-          return `CASE WHEN p.markdown ILIKE ${p} OR p.title ILIKE ${p} OR j.root_url ILIKE ${p} THEN 1 ELSE 0 END`;
+        .map((_, index) => {
+          const param = `$${index + 1}`;
+          return `CASE WHEN p.markdown ILIKE ${param} OR p.title ILIKE ${param} OR j.root_url ILIKE ${param} THEN 1 ELSE 0 END`;
         })
         .join(" + ");
 
-      // Fetch more keyword hits than needed so we have room to merge with vector hits
-      const keywordLimit = limit * 3;
       const res = await db.query(
         `SELECT p.url, p.title, p.markdown,
                 (${scoreSql})::float as similarity,
@@ -543,42 +557,40 @@ export async function registerRoutes(app: FastifyInstance) {
            AND (j.org_id = $${patterns.length + 2} OR j.org_id IS NULL)
          ORDER BY similarity DESC, p.crawled_at DESC
          LIMIT $${patterns.length + 1}`,
-        [...patterns, keywordLimit, request.orgId]
+        [...patterns, limit, request.orgId]
       );
-
-      const keywordHits = res.rows.map((row) => ({
+      
+      const formatted = res.rows.map(row => ({
         url: row.url,
         title: row.title,
         content: createSearchSnippet(row.markdown ?? "", terms.length ? terms : [query.toLowerCase()]),
         similarity: Number(row.similarity) / Math.max(1, patterns.length),
-        searchType: "keyword" as const,
+        searchType: "hybrid" as const,
         matchedTerms: extractMatchedTerms(`${row.title ?? ""} ${row.markdown ?? ""} ${row.job_root_url ?? ""}`.toLowerCase(), terms),
         provenance: {
           depth: row.depth ?? undefined,
           statusCode: row.status_code ?? undefined,
           crawledAt: row.crawled_at ? new Date(row.crawled_at).toISOString() : undefined,
         },
-        scoreBreakdown: { keyword: Number(row.similarity) / Math.max(1, patterns.length) },
-        job: { id: row.job_id, rootUrl: row.job_root_url, goal: row.job_goal ?? undefined },
+        scoreBreakdown: {
+          keyword: Number(row.similarity) / Math.max(1, patterns.length),
+        },
+        job: { id: row.job_id, rootUrl: row.job_root_url, goal: row.job_goal ?? undefined }
       }));
 
-      // Attempt vector search if OpenAI key is configured
-      let vectorHits: Array<{ url: string; title?: string; content: string; similarity: number }> = [];
-      let hasVectorResults = false;
-      if (process.env.OPENAI_API_KEY) {
-        try {
-          const vHits = await searchEmbeddingsGlobal(query, limit * 2, request.orgId);
-          vectorHits = vHits.map((h) => ({ url: h.url, title: h.title, content: h.content, similarity: h.similarity }));
-          hasVectorResults = vectorHits.length > 0;
-        } catch (vecErr: any) {
-          logger.warn({ err: vecErr.message }, "Cross-job vector search failed, falling back to keyword only");
-        }
-      }
+      const reranked = formatted
+        .map((hit) => {
+          const rerank = rerankHybridHit(hit, terms);
+          return {
+            ...hit,
+            similarity: rerank,
+            scoreBreakdown: { ...(hit.scoreBreakdown ?? {}), rerank },
+          };
+        })
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, limit);
 
-      const merged = mergeAndRerankHybridHits(keywordHits, vectorHits, query, limit)
-        .map((hit) => ({ ...hit, searchType: hasVectorResults ? hit.searchType : "keyword" as const }));
-
-      return reply.status(200).send({ success: true, data: merged });
+      return reply.status(200).send({ success: true, data: reranked });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
@@ -952,16 +964,26 @@ export async function registerRoutes(app: FastifyInstance) {
       const { answer, sources } = await synthesizeAnswer(id, question.trim(), Number(limit));
       return reply.status(200).send({ success: true, data: { answer, sources } });
     } catch (err: any) {
+      const aiError = classifyAIError(err);
+      if (aiError) return reply.status(aiError.status).send({ success: false, error: aiError.error });
       return reply.status(500).send({ success: false, error: err.message });
     }
   });
 
   // ─── GET /v1/ai/status ────────────────────────────────────
-  app.get("/v1/ai/status", async () => ({
-    success: true,
-    aiAvailable: isAIAvailable(),
-    providers: { gemini: !!process.env.GOOGLE_AI_API_KEY, openai: !!process.env.OPENAI_API_KEY },
-  }));
+  app.get("/v1/ai/status", async () => {
+    const routing = buildAIRoutingStatus();
+    return {
+      success: true,
+      aiAvailable: isAIAvailable(),
+      activeProvider: routing.activeProvider,
+      providers: {
+        gemini: !!process.env.GOOGLE_AI_API_KEY?.trim(),
+        openai: !!process.env.OPENAI_API_KEY?.trim(),
+      },
+      ...(routing.openAi ? { openAi: routing.openAi } : {}),
+    };
+  });
 
   // ─── GET /v1/system/health ────────────────────────────────
   app.get("/v1/system/health", async (_request, reply) => {
@@ -1010,6 +1032,8 @@ export async function registerRoutes(app: FastifyInstance) {
       } catch {}
     }
 
+    const routing = buildAIRoutingStatus();
+
     return reply.status(200).send({
       success: true,
       data: {
@@ -1018,10 +1042,15 @@ export async function registerRoutes(app: FastifyInstance) {
         redis: redisOk,
         worker: workerOk,
         ai: isAIAvailable(),
+        activeProvider: routing.activeProvider,
+        ...(routing.openAi ? { openAi: routing.openAi } : {}),
         lastWorkerError,
       },
     });
   });
+
+  await registerAuthRoutes(app);
+  await registerBillingRoutes(app);
 }
 
 // ── Shared synthesis helper (used by route + MCP tool) ───────────────────────
@@ -1031,41 +1060,70 @@ export async function synthesizeAnswer(
   question: string,
   limit = 5
 ): Promise<{ answer: string; sources: string[] }> {
+  const safeLimit = Math.min(20, Math.max(1, Math.floor(Number(limit)) || 5));
   let chunks: Array<{ content: string; url: string; title?: string }> = [];
 
   // 1. Try vector search (requires pgvector + OpenAI key)
   if (isDbEnabled() && process.env.OPENAI_API_KEY) {
     try {
-      const hits = await searchEmbeddings(jobId, question, limit);
+      const hits = await searchEmbeddings(jobId, question, safeLimit);
       if (hits.length > 0) {
         chunks = hits.map((h) => ({ content: h.content, url: h.url, title: h.title }));
       }
     } catch {}
   }
 
-  // 2. Fallback: keyword search over stored markdown
+  // 2. Fallback: keyword search over stored markdown (any page in the job, not only the first N by time)
   if (chunks.length === 0 && isDbEnabled()) {
     const db = getDb();
-    const terms = tokenizeSearchQuery(question);
-    const res = await db.query(
-      `SELECT url, title, substring(markdown from 1 for 2000) AS excerpt
-       FROM pages WHERE job_id = $1 AND markdown IS NOT NULL
-       ORDER BY crawled_at ASC LIMIT 50`,
-      [jobId]
-    );
-    const scored = res.rows
-      .map((r: any) => ({
-        ...r,
-        score: terms.filter((t: string) => (r.excerpt ?? "").toLowerCase().includes(t)).length,
-      }))
-      .filter((r: any) => r.score > 0)
-      .sort((a: any, b: any) => b.score - a.score)
-      .slice(0, limit);
-    chunks = scored.map((r: any) => ({ content: r.excerpt, url: r.url, title: r.title }));
+    const terms = tokenizeSearchQuery(question).slice(0, 20);
+    const fetchCap = Math.min(120, Math.max(24, safeLimit * 12));
+
+    if (terms.length > 0) {
+      const termConds = terms.map((_, i) => `position($${i + 2} in lower(markdown)) > 0`).join(" OR ");
+      const limitParam = terms.length + 2;
+      const res = await db.query(
+        `SELECT url, title, substring(markdown from 1 for 2000) AS excerpt
+         FROM pages
+         WHERE job_id = $1 AND markdown IS NOT NULL AND (${termConds})
+         ORDER BY crawled_at DESC
+         LIMIT $${limitParam}`,
+        [jobId, ...terms, fetchCap]
+      );
+      const scored = res.rows
+        .map((r: any) => ({
+          ...r,
+          score: terms.filter((t: string) => (r.excerpt ?? "").toLowerCase().includes(t)).length,
+        }))
+        .filter((r: any) => r.score > 0)
+        .sort((a: any, b: any) => b.score - a.score)
+        .slice(0, safeLimit);
+      chunks = scored.map((r: any) => ({ content: r.excerpt, url: r.url, title: r.title }));
+    }
+
+    // Short questions (no tokens >2 chars) or no keyword hit: use the most recently crawled pages as context
+    if (chunks.length === 0) {
+      const recentLimit = Math.min(80, Math.max(12, safeLimit * 4));
+      const res = await db.query(
+        `SELECT url, title, substring(markdown from 1 for 2000) AS excerpt
+         FROM pages
+         WHERE job_id = $1 AND markdown IS NOT NULL
+         ORDER BY crawled_at DESC
+         LIMIT $2`,
+        [jobId, recentLimit]
+      );
+      chunks = res.rows.map((r: any) => ({
+        content: r.excerpt,
+        url: r.url,
+        title: r.title,
+      }));
+    }
   }
 
   if (chunks.length === 0) {
-    throw new Error("No relevant content found. Ensure the crawl is complete and has page content.");
+    throw new Error(
+      "No relevant content found. Ensure DATABASE_URL is set, the crawl finished, and pages have markdown. For semantic search over large jobs, set OPENAI_API_KEY and build embeddings (RAG export)."
+    );
   }
 
   const context = chunks

@@ -59,6 +59,9 @@ export interface SystemHealth {
   redis: boolean;
   worker: boolean;
   ai: boolean;
+  /** When set, chat uses this backend (e.g. openrouter vs api.openai.com). */
+  activeProvider?: string | null;
+  openAi?: { gateway: string; chatModel: string };
   lastWorkerError?: string;
 }
 
@@ -475,28 +478,6 @@ export async function askJob(
   });
 }
 
-export interface BillingInfo {
-  orgId: string;
-  plan: string;
-  pagesUsed: number;
-  pagesLimit: number;
-  usagePercent: number;
-  periodResetAt: string;
-}
-
-export async function getBillingInfo(): Promise<BillingInfo> {
-  return fetchApi("/auth/me");
-}
-
-export async function getBillingCheckoutUrl(plan: "starter" | "pro"): Promise<string> {
-  const data = await fetchApi<{ url: string }>("/billing/checkout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ plan }),
-  });
-  return data.url;
-}
-
 export async function rerunJobExtraction(
   jobId: string,
   prompt: string,
@@ -514,4 +495,41 @@ export async function getJobExtractedData(
 ): Promise<Array<{ url: string; extractedData: any }>> {
   const res = await fetchApi(`/v1/jobs/${jobId}/extracted?limit=${limit}`);
   return Array.isArray(res) ? res : [];
+}
+
+export interface OrgBilling {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  pagesUsed: number;
+  pagesQuota: number;
+  stripeCustomerId: string | null;
+}
+
+export async function getOrgBilling(): Promise<OrgBilling> {
+  const raw = await fetchApi("/auth/me");
+  return {
+    id: raw.id,
+    name: raw.name,
+    slug: raw.slug,
+    plan: raw.plan,
+    pagesUsed: raw.pages_used ?? raw.pagesUsed ?? 0,
+    pagesQuota: raw.pages_quota ?? raw.pagesQuota ?? 0,
+    stripeCustomerId: raw.stripe_customer_id ?? raw.stripeCustomerId ?? null,
+  };
+}
+
+export async function startCheckout(plan: "starter" | "pro"): Promise<string> {
+  const res = await fetchApi("/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
+  return res.url;
+}
+
+export async function getBillingPortalUrl(): Promise<string> {
+  const res = await fetchApi("/billing/portal", { method: "POST" });
+  return res.url;
 }

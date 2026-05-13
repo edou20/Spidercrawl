@@ -1,0 +1,232 @@
+<style>
+  .refine-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 24px;
+  }
+  @media (max-width: 980px) { .refine-grid { grid-template-columns: 1fr; } }
+  .direction {
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: linear-gradient(180deg, rgba(15,23,42,.96), rgba(2,6,23,.98));
+    border-radius: 18px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .direction:hover {
+    transform: translateY(-3px);
+    border-color: rgba(168, 85, 247, 0.58);
+    box-shadow: 0 20px 48px rgba(2, 6, 23, .5);
+  }
+  .direction.selected {
+    border-color: rgba(34, 211, 238, .85);
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, .14), 0 20px 48px rgba(2, 6, 23, .5);
+  }
+  .visual {
+    height: 280px;
+    padding: 16px;
+    border-bottom: 1px solid rgba(148, 163, 184, .14);
+    background:
+      radial-gradient(circle at 72% 6%, rgba(168,85,247,.26), transparent 36%),
+      radial-gradient(circle at 20% 90%, rgba(34,211,238,.16), transparent 34%),
+      #030617;
+  }
+  .copy {
+    padding: 18px;
+  }
+  .copy h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+  }
+  .copy p {
+    margin: 0;
+    color: rgba(226, 232, 240, .72);
+    line-height: 1.48;
+  }
+  .ui {
+    height: 246px;
+    border-radius: 14px;
+    background: rgba(3, 7, 18, .96);
+    border: 1px solid rgba(148, 163, 184, .17);
+    overflow: hidden;
+    color: #e2e8f0;
+    font-family: Inter, system-ui, sans-serif;
+  }
+  .top {
+    height: 32px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 0 10px;
+    border-bottom:1px solid rgba(148,163,184,.13);
+    font-size:9px;
+    color:rgba(226,232,240,.7);
+    text-transform:uppercase;
+    letter-spacing:.08em;
+  }
+  .body { height:214px; display:grid; min-width:0; }
+  .panel { padding:10px; min-width:0; border-right:1px solid rgba(148,163,184,.12); }
+  .panel:last-child { border-right:0; }
+  .label { font-size:9px; color:rgba(148,163,184,.8); text-transform:uppercase; letter-spacing:.08em; }
+  .line { height:7px; border-radius:999px; background:rgba(148,163,184,.22); margin-top:7px; }
+  .line.hot { background:linear-gradient(90deg,#22d3ee,#a855f7); }
+  .line.green { background:linear-gradient(90deg,#a3e635,#22d3ee); }
+  .box {
+    border:1px solid rgba(148,163,184,.14);
+    background:rgba(15,23,42,.62);
+    border-radius:10px;
+    padding:10px;
+  }
+  .answer {
+    min-height: 82px;
+    border-color: rgba(34,211,238,.22);
+    background: linear-gradient(180deg, rgba(14,116,144,.18), rgba(15,23,42,.62));
+  }
+  .graph {
+    height: 132px;
+    border-radius: 12px;
+    border: 1px solid rgba(168,85,247,.25);
+    background:
+      radial-gradient(circle at 50% 50%, rgba(168,85,247,.55) 0 7px, transparent 8px),
+      radial-gradient(circle at 24% 34%, rgba(34,211,238,.48) 0 5px, transparent 6px),
+      radial-gradient(circle at 75% 27%, rgba(163,230,53,.36) 0 5px, transparent 6px),
+      radial-gradient(circle at 70% 76%, rgba(244,63,94,.38) 0 5px, transparent 6px),
+      linear-gradient(135deg, rgba(30,41,59,.62), rgba(2,6,23,.85));
+  }
+  .table { display:grid; gap:6px; }
+  .row { height:18px; border-radius:7px; background:rgba(148,163,184,.12); }
+  .row.live { background:rgba(34,211,238,.13); border:1px solid rgba(34,211,238,.18); }
+  .letter {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display:grid;
+    place-items:center;
+    background: rgba(2,6,23,.88);
+    border: 1px solid rgba(103,232,249,.34);
+    color:#67e8f9;
+    font-weight:800;
+    position:absolute;
+    margin: 10px;
+    z-index:2;
+  }
+</style>
+
+<h2>Refine Knowledge Ops</h2>
+<p class="subtitle">C is the right lane. Now choose what should dominate the shipped first impression.</p>
+
+<div class="refine-grid">
+  <div class="direction" data-choice="ask-first" onclick="toggleSelect(this)">
+    <div class="visual">
+      <div class="letter">1</div>
+      <div class="ui">
+        <div class="top"><span>Spidercrawl</span><span>Ask anything</span></div>
+        <div class="body" style="grid-template-columns: 1.1fr .9fr;">
+          <div class="panel">
+            <div class="box answer">
+              <div class="label">Answer layer</div>
+              <div class="line hot" style="width:84%"></div>
+              <div class="line" style="width:92%"></div>
+              <div class="line" style="width:66%"></div>
+            </div>
+            <div class="box" style="margin-top:8px;">
+              <div class="label">Trusted sources</div>
+              <div class="line green" style="width:74%"></div>
+              <div class="line" style="width:88%"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="label">Crawl context</div>
+            <div class="table" style="margin-top:10px;">
+              <div class="row live"></div>
+              <div class="row"></div>
+              <div class="row"></div>
+              <div class="row"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="copy">
+      <h3>Ask-First</h3>
+      <p>The most magical. The homepage and job detail lead with “ask your crawl,” sources, confidence, and generated summaries.</p>
+    </div>
+  </div>
+
+  <div class="direction" data-choice="graph-first" onclick="toggleSelect(this)">
+    <div class="visual">
+      <div class="letter">2</div>
+      <div class="ui">
+        <div class="top"><span>Spidercrawl</span><span>Entity map</span></div>
+        <div class="body" style="grid-template-columns: .95fr 1.05fr;">
+          <div class="panel">
+            <div class="label">Entities</div>
+            <div class="table" style="margin-top:10px;">
+              <div class="row live"></div>
+              <div class="row live"></div>
+              <div class="row"></div>
+              <div class="row"></div>
+            </div>
+            <div class="box" style="margin-top:10px;">
+              <div class="line hot" style="width:70%"></div>
+              <div class="line" style="width:82%"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="graph"></div>
+            <div class="line green" style="width:76%; margin-top:11px;"></div>
+            <div class="line" style="width:58%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="copy">
+      <h3>Graph-First</h3>
+      <p>The most distinctive visually. The product feels like mapping an unknown web into entities, relationships, and provenance.</p>
+    </div>
+  </div>
+
+  <div class="direction" data-choice="balanced-ops" onclick="toggleSelect(this)">
+    <div class="visual">
+      <div class="letter">3</div>
+      <div class="ui">
+        <div class="top"><span>Spidercrawl</span><span>Knowledge ops</span></div>
+        <div class="body" style="grid-template-columns: 50px 1fr;">
+          <div class="panel">
+            <div class="line hot" style="width:100%"></div>
+            <div class="line" style="width:82%"></div>
+            <div class="line" style="width:64%"></div>
+            <div class="line" style="width:76%; margin-top:28px;"></div>
+          </div>
+          <div class="panel" style="border-right:0;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+              <div class="box">
+                <div class="label">Live crawl</div>
+                <div class="line green" style="width:76%"></div>
+                <div class="line" style="width:92%"></div>
+              </div>
+              <div class="box answer">
+                <div class="label">Ask</div>
+                <div class="line hot" style="width:82%"></div>
+                <div class="line" style="width:60%"></div>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns: .7fr 1fr; gap:8px;">
+              <div class="graph" style="height:82px;"></div>
+              <div class="table">
+                <div class="row live"></div>
+                <div class="row"></div>
+                <div class="row"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="copy">
+      <h3>Balanced Ops</h3>
+      <p>The safest to ship. Keeps command-center reliability while making Ask, graph, and sources the memorable product layer.</p>
+    </div>
+  </div>
+</div>

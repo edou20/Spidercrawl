@@ -26,7 +26,7 @@ The project addresses that with:
 | Markdown engine | `src/core/markdown-engine.ts` | LLM-friendly Markdown conversion with table/code preservation. |
 | Crawl orchestrator | `src/core/orchestrator.ts` | BullMQ queue, BFS crawl loop, job status, DB persistence, webhooks, stale-job reconciliation. |
 | Browser worker | `workers/scraper_worker.py` | Playwright rendering and screenshots for JS-heavy pages. |
-| Storage | `src/lib/db.ts`, `src/lib/job-store.ts`, Redis | Postgres persistence plus Redis queue/status cache. |
+| Storage | `src/lib/db.ts`, `src/lib/job-store.ts`, Redis | Postgres persistence plus Redis queue/status cache and API-key lookups. |
 | AI layer | `src/ai` | Structured extraction, vision descriptions, goal scoring, entity resolution. |
 | Exports/search | `src/export` | JSON, CSV, JSONL, RAG, graph, JSON-LD, keyword/vector/hybrid search. |
 | Dashboard | `dashboard` | React/Vite UI for crawl management, pages, search, schedules, settings. |
@@ -37,7 +37,7 @@ The project addresses that with:
 | Service | Required For | Default |
 | --- | --- | --- |
 | Node API | All API/dashboard operations | `http://127.0.0.1:3200` |
-| Redis | Crawl queue/status cache | `127.0.0.1:6379` |
+| Redis | Crawl queue/status cache, API key → org mirror | `127.0.0.1:6379` or `REDIS_URL` |
 | Postgres | Persistent jobs/pages/events/API keys/schedules | `127.0.0.1:5432` |
 | Python worker | Browser rendering/screenshots/self-healing fallback | `http://127.0.0.1:8400` |
 | Dashboard dev server | Frontend development | `http://127.0.0.1:5173/app/` |
@@ -98,6 +98,15 @@ Operations/integrations:
 - `POST /v1/webhooks`
 - `DELETE /v1/webhooks/:id`
 
+Hosted product / billing (optional; see **[docs/guide/LAUNCH_GUIDE.md](docs/guide/LAUNCH_GUIDE.md)**):
+
+- `POST /auth/register` — create organization, API key, welcome email (requires Postgres).
+- `GET /auth/me` — current org, plan, page usage/quota (Bearer or key-attached request).
+- `POST /billing/checkout` — Stripe Checkout session for `starter` or `pro` (Bearer; Stripe env vars).
+- `POST /billing/webhook` — Stripe subscription webhooks (signature-verified raw body; open when `REQUIRE_API_KEY=true`).
+
+`POST /v1/crawl` returns **402** when the resolved organization is over its stored page quota.
+
 ## Reliability Notes
 
 Recent reliability work added or verified:
@@ -125,6 +134,12 @@ curl http://127.0.0.1:3200/health
 curl http://127.0.0.1:3200/v1/system/health
 curl http://127.0.0.1:5173/v1/stats
 ```
+
+## Hosted deployment (Railway, Render, Fly.io, Vercel)
+
+See **[docs/guide/deployment-hosted.md](docs/guide/deployment-hosted.md)** for platform fit, env checklist, and why the API is not suited for Vercel serverless.
+
+For registration, Stripe, Resend, quotas, and production open routes, see **[docs/guide/LAUNCH_GUIDE.md](docs/guide/LAUNCH_GUIDE.md)**.
 
 Expected healthy local system:
 

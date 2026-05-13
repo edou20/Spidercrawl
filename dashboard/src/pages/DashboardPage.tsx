@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo, useRef } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Globe, CheckCircle, TrendingUp, Plus, ArrowRight, Clock,
   RefreshCw, Trash2, Download, Search, RotateCcw, AlertTriangle, Activity,
-  BrainCircuit, Network, ShieldCheck, MessageSquare, SendHorizontal, FileText,
+  BrainCircuit, Network, ShieldCheck, MessageSquare, SendHorizontal, FileText, X,
 } from "lucide-react";
 import {
   JobRow, Stats, listJobs, getStats, deleteJob, retryJob,
@@ -28,14 +28,20 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function MiniGraph({ jobId }: { jobId: string | null }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(480);
-  const [nodes, setNodes] = useState<GNode[]>([]);
-  const [edges, setEdges] = useState<GEdge[]>([]);
-  const [loading, setLoading] = useState(false);
+const DOMAIN_PALETTE = [
+  "#38bdf8", "#34d399", "#fb923c", "#f472b6",
+  "#a3e635", "#fbbf24", "#818cf8", "#e879f9", "#2dd4bf",
+];
 
-  // Measure container width
+function MiniGraph({ jobId, navigate }: { jobId: string | null; navigate: ReturnType<typeof useNavigate> }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth]           = useState(480);
+  const [nodes, setNodes]           = useState<GNode[]>([]);
+  const [edges, setEdges]           = useState<GEdge[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [filterType, setFilterType] = useState<"all" | "page" | "entity">("all");
+  const [graphSearch, setGraphSearch] = useState("");
+
   useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver(entries => {
@@ -47,7 +53,6 @@ function MiniGraph({ jobId }: { jobId: string | null }) {
     return () => ro.disconnect();
   }, []);
 
-  // Fetch real graph data from the latest completed job
   useEffect(() => {
     if (!jobId) return;
     setLoading(true);
@@ -56,45 +61,50 @@ function MiniGraph({ jobId }: { jobId: string | null }) {
       getJobLinks(jobId),
       getJobEntities(jobId),
     ]).then(([pagesRes, linksRes, entitiesRes]) => {
-      const pages   = pagesRes.status   === "fulfilled" ? pagesRes.value   : [];
-      const links   = linksRes.status   === "fulfilled" ? linksRes.value   : [];
+      const pages    = pagesRes.status    === "fulfilled" ? pagesRes.value    : [];
+      const links    = linksRes.status    === "fulfilled" ? linksRes.value    : [];
       const entities = entitiesRes.status === "fulfilled" ? entitiesRes.value : [];
 
-      // Cap for mini display
-      const MAX_PAGES    = 80;
-      const MAX_ENTITIES = 40;
+      const MAX_PAGES = 80, MAX_ENTITIES = 40;
       const usedPages    = pages.slice(0, MAX_PAGES);
       const usedEntities = entities.slice(0, MAX_ENTITIES);
-
       const pageSet = new Set(usedPages.map(p => p.url));
 
+      // Assign a distinct color per domain
+      const domainColorMap = new Map<string, string>();
+      for (const p of usedPages) {
+        const domain = hostname(p.url);
+        if (!domainColorMap.has(domain))
+          domainColorMap.set(domain, DOMAIN_PALETTE[domainColorMap.size % DOMAIN_PALETTE.length]);
+      }
+
       const gNodes: GNode[] = [
-        ...usedPages.map(p => ({
-          id: p.url,
-          label: hostname(p.url) + (p.url.replace(/https?:\/\/[^/]+/, "") || "/"),
-          color: "#38bdf8",
-          size: 6,
-          type: "page" as const,
-        })),
+        ...usedPages.map(p => {
+          const domain = hostname(p.url);
+          return {
+            id: p.url,
+            label: domain + (p.url.replace(/https?:\/\/[^/]+/, "") || "/"),
+            color: domainColorMap.get(domain) ?? "#38bdf8",
+            size: 6,
+            type: "page" as const,
+            cluster: domain,
+          };
+        }),
         ...usedEntities.map(e => ({
           id: `entity:${e.name}`,
           label: e.name,
           color: "#a78bfa",
           size: 7 + Math.min((e.sourceUrls?.length ?? 1) * 1.5, 8),
           type: "entity" as const,
+          cluster: "entities",
         })),
       ];
 
       const visibleIds = new Set(gNodes.map(n => n.id));
       const gEdges: GEdge[] = [
-        ...links
-          .filter(l => pageSet.has(l.from) && pageSet.has(l.to))
-          .slice(0, 300)
-          .map(l => ({ source: l.from, target: l.to })),
+        ...links.filter(l => pageSet.has(l.from) && pageSet.has(l.to)).slice(0, 300).map(l => ({ source: l.from, target: l.to })),
         ...usedEntities.flatMap(e =>
-          (e.sourceUrls ?? [])
-            .filter(u => pageSet.has(u))
-            .map(u => ({ source: u, target: `entity:${e.name}` }))
+          (e.sourceUrls ?? []).filter(u => pageSet.has(u)).map(u => ({ source: u, target: `entity:${e.name}` }))
         ).filter(e => visibleIds.has(e.source) && visibleIds.has(e.target)),
       ];
 
@@ -103,9 +113,11 @@ function MiniGraph({ jobId }: { jobId: string | null }) {
     }).finally(() => setLoading(false));
   }, [jobId]);
 
+  const GRAPH_H = 320;
+
   if (!jobId) {
     return (
-      <div className="knowledge-graph-preview graph-empty-state" style={{ height: 280, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+      <div className="knowledge-graph-preview graph-empty-state" style={{ height: GRAPH_H, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
         <BrainCircuit size={28} style={{ color: "var(--brand)", opacity: 0.4 }} />
         <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Run a crawl to see the knowledge graph</span>
       </div>
@@ -114,16 +126,69 @@ function MiniGraph({ jobId }: { jobId: string | null }) {
 
   if (loading) {
     return (
-      <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "var(--text-tertiary)", fontSize: 12 }}>
+      <div style={{ height: GRAPH_H, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "var(--text-tertiary)", fontSize: 12 }}>
         <div className="spinner" />
         Building graph…
       </div>
     );
   }
 
+  const filterChips: { value: "all" | "page" | "entity"; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "page", label: "Pages" },
+    { value: "entity", label: "Entities" },
+  ];
+
   return (
-    <div ref={containerRef} style={{ width: "100%", height: 280 }}>
-      <ForceGraph nodes={nodes} edges={edges} width={width} height={280} />
+    <div ref={containerRef} style={{ width: "100%" }}>
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 2px 8px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          {filterChips.map(chip => (
+            <button
+              key={chip.value}
+              onClick={() => setFilterType(chip.value)}
+              style={{
+                padding: "3px 10px",
+                borderRadius: 20,
+                fontSize: 11,
+                fontWeight: 500,
+                border: `1px solid ${filterType === chip.value ? "var(--brand)" : "rgba(148,163,184,0.18)"}`,
+                background: filterType === chip.value ? "rgba(56,189,248,0.12)" : "transparent",
+                color: filterType === chip.value ? "var(--brand)" : "var(--text-tertiary)",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(148,163,184,0.14)", borderRadius: 8, padding: "3px 8px" }}>
+          <Search size={11} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
+          <input
+            type="text"
+            value={graphSearch}
+            onChange={e => setGraphSearch(e.target.value)}
+            placeholder="Search nodes…"
+            style={{ background: "transparent", border: "none", outline: "none", fontSize: 11, color: "var(--text-primary)", width: 120, minWidth: 0 }}
+          />
+          {graphSearch && (
+            <button onClick={() => setGraphSearch("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", color: "var(--text-tertiary)" }}>
+              <X size={10} />
+            </button>
+          )}
+        </div>
+      </div>
+      <ForceGraph
+        nodes={nodes}
+        edges={edges}
+        width={width}
+        height={GRAPH_H}
+        filterType={filterType}
+        searchQuery={graphSearch}
+        onNodeClick={(id) => navigate(`/jobs/${jobId}`)}
+      />
     </div>
   );
 }
@@ -268,16 +333,9 @@ function KnowledgeOpsOverview({
         <div className="knowledge-panel graph-panel">
           <div className="knowledge-panel__header">
             <span><Network size={14} /> Knowledge Graph</span>
-            <div className="graph-legend">
-              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <svg width="9" height="9"><circle cx="4.5" cy="4.5" r="3.5" fill="#38bdf8" opacity="0.85" /></svg> Pages
-              </span>
-              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <svg width="10" height="9" viewBox="0 0 10 9"><polygon points="5,0 9.3,2.5 9.3,7 5,9 0.7,7 0.7,2.5" fill="#a78bfa" opacity="0.85" /></svg> Entities
-              </span>
-            </div>
+            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>Click node to open crawl · right-click page to open URL</span>
           </div>
-          <MiniGraph jobId={latestCompleted?.id ?? (recentJobs[0]?.id ?? null)} />
+          <MiniGraph jobId={latestCompleted?.id ?? (recentJobs[0]?.id ?? null)} navigate={navigate} />
         </div>
       </div>
 
@@ -361,7 +419,6 @@ function KnowledgeOpsOverview({
 /* ─── Component ────────────────────────────────────────────────── */
 export default function DashboardPage({ mode = "overview" }: { mode?: DashboardMode }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const [jobs,         setJobs]         = useState<JobRow[]>([]);
   const [stats,        setStats]        = useState<Stats | null>(null);
   const [err,          setErr]          = useState<string | null>(null);
@@ -369,13 +426,6 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery,  setSearchQuery]  = useState("");
   const [statusFilter, setStatusFilter] = useState<"all"|"queued"|"processing"|"completed"|"failed">("all");
-
-  useEffect(() => {
-    const s = (location.state as any)?.statusFilter;
-    if (s && ["all","queued","processing","completed","failed"].includes(s)) {
-      setStatusFilter(s);
-    }
-  }, [location]);
   const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set());
   const [bulkBusy,     setBulkBusy]     = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
@@ -636,7 +686,7 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
           <button
             className="btn btn-ghost btn-sm"
             style={{ marginLeft: "auto", color: "var(--red)", borderColor: "rgba(239,68,68,0.25)" }}
-            onClick={() => isCrawlsMode ? setStatusFilter("failed") : navigate("/crawls", { state: { statusFilter: "failed" } })}
+            onClick={() => setStatusFilter("failed")}
           >
             Show failed
           </button>
@@ -801,7 +851,7 @@ export default function DashboardPage({ mode = "overview" }: { mode?: DashboardM
                     </td>
                     <td style={{ maxWidth: 200 }}>
                       {j.goal
-                        ? <span className="text-sm text-secondary" style={{ fontStyle: "italic" }}>"{j.goal}"</span>
+                        ? <span className="text-sm text-secondary truncate" style={{ fontStyle: "italic", display: "block", maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{j.goal}"</span>
                         : <span className="text-xs text-disabled">breadth-first</span>
                       }
                     </td>

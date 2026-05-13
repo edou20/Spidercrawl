@@ -31,7 +31,7 @@ function pageDisplayTitle(page: PageRow) {
 
 function humanizeAskError(message: string) {
   if (/api key not valid|API_KEY_INVALID|rejected the configured API key|invalid api key|unauthorized|permission_denied/i.test(message)) {
-    return "The AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY, then ask again.";
+    return "The AI provider rejected the configured API key. Update GOOGLE_AI_API_KEY or OPENAI_API_KEY, then ask again. For OpenRouter: use OPENAI_BASE_URL=https://openrouter.ai/api/v1 and OPENAI_CHAT_MODEL (e.g. openai/gpt-4o-mini); unset GOOGLE_AI_API_KEY if you want the OpenAI-compatible path.";
   }
   if (/quota|rate limit|too many requests|temporarily unavailable/i.test(message)) {
     return "The AI provider is temporarily unavailable because of quota or rate limits. Try again later or switch providers.";
@@ -522,6 +522,29 @@ export default function JobDetailPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="job-knowledge-command">
+        <div className="job-ask-command">
+          <div className="job-command-label"><MessageSquare size={13} /> Ask this crawl</div>
+          <button className="job-ask-input" onClick={openAskTab}>
+            <span>{job.goal ? `What did the crawl find about "${job.goal}"?` : `What does ${hostname(job.rootUrl)} reveal?`}</span>
+            <SendHorizonal size={14} />
+          </button>
+          <p>
+            Ask AI uses crawled page content and returns source-backed answers when an AI provider and indexed content are available.
+          </p>
+        </div>
+        <button className="job-command-card" onClick={() => setTab("graph")}>
+          <div className="job-command-label"><Network size={13} /> Graph readiness</div>
+          <strong>{entityCount > 0 ? `${entityCount} entities` : `${pages.length} pages`}</strong>
+          <span>{entityCount > 0 ? `${entityTypes.length} entity type${entityTypes.length === 1 ? "" : "s"} mapped` : "Open graph to inspect page relationships"}</span>
+        </button>
+        <button className="job-command-card" onClick={() => setTab("pages")}>
+          <div className="job-command-label"><FileText size={13} /> Source memory</div>
+          <strong>{pages.length.toLocaleString()} sources</strong>
+          <span>{pages.length > 0 ? "Search, preview, and export crawled content" : "Sources appear as pages complete"}</span>
+        </button>
       </div>
 
       {/* Summary strip — shown once job is complete */}
